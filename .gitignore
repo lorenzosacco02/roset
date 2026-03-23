@@ -140,3 +140,4 @@ snapshots/*
 resources/*.conf
 resources/*.rsc
 vrnetlab/*
+rib.mrt
