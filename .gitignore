@@ -141,3 +141,4 @@ resources/*.conf
 resources/*.rsc
 vrnetlab/*
 rib.mrt
+src/test_*
