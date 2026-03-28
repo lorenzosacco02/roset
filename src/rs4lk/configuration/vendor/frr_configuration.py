@@ -7,7 +7,7 @@ class FrrConfiguration(VendorConfiguration):
         return "frrouting/frr:9"
 
     def _remap_interfaces(self) -> None:
-        raise NotImplementedError
+        pass
 
     def check_health(self, result):
         raise NotImplementedError
