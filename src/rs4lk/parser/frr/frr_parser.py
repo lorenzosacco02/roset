@@ -8,9 +8,11 @@ class FrrParser(Parser):
 
         self._bgp_groups = {}
         self._vlan_interfaces: dict[str, dict] = {}
+        
+    def _parse_interfaces(self, content):
+        raise NotImplementedError
 
-    def _parse_bgp(self, content: str) -> None:
-        return
+    def _parse_bgp(self, content):
+        raise NotImplementedError
 
-    def _parse_interfaces(self, content: str) -> None:
-        return
+
