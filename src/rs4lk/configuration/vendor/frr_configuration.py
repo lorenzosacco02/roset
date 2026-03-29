@@ -1,13 +1,26 @@
 from ...foundation.configuration.vendor_configuration import VendorConfiguration
+from ...model.interface import Interface, VlanInterface
+
 
 
 class FrrConfiguration(VendorConfiguration):
     
     def get_image(self) -> str:
-        return "frrouting/frr:9"
+        return 'frrouting/frr:9'
 
     def _remap_interfaces(self) -> None:
-        pass
+        idx = 0
+        # Prima passa: assegna indici alle interfacce fisiche
+        for iface in self.interfaces.values():
+            if not isinstance(iface, VlanInterface):
+                self.iface_to_iface_idx[iface.name] = idx
+                idx += 1
+
+        # Seconda passa: le VLAN ereditano l'indice della phy padre
+        for iface in self.interfaces.values():
+            if isinstance(iface, VlanInterface):
+                phy_idx = self.iface_to_iface_idx[iface.phy.name]
+                self.iface_to_iface_idx[iface.name] = phy_idx
 
     def check_health(self, result):
         raise NotImplementedError
