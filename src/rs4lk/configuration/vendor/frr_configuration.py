@@ -14,7 +14,7 @@ class FrrConfiguration(VendorConfiguration):
     PREFIX_REGEX: re.Pattern = re.compile(r"(\d+\.\d+\.\d+\.\d+/\d+)")
 
     def get_image(self) -> str:
-        return 'frrouting/frr:9'
+        return 'kathara/frr:9'
 
     def _remap_interfaces(self) -> None:
         idx = 0
@@ -49,6 +49,7 @@ class FrrConfiguration(VendorConfiguration):
             "/etc/frr/daemons"
         )
 
+    # Inutilizzato, ma lasciato per coerenza con le altre configurazioni
     def get_lines(self) -> list[str]:
         return [line.rstrip() for line in self._lines if line.strip()]
 

@@ -140,6 +140,6 @@ snapshots/*
 resources/*.conf
 resources/*.rsc
 vrnetlab/*
-rib.mrt
+*.mrt
 src/test_*
 docs/*
