@@ -42,16 +42,54 @@ class FrrConfiguration(VendorConfiguration):
 
         candidate_router.add_meta('env', "FRR_PIDFILE=/var/run/frr/frr.pid")
 
-        all_lines = "\n".join(self._lines)
+        all_lines = "\n".join(self.get_lines())
         candidate_router.create_file_from_string(all_lines, self.CONFIG_FILE_PATH)
         candidate_router.create_file_from_string(
             "bgpd=yes\nzebra=yes\n",
             "/etc/frr/daemons"
         )
+        
+        startup_commands = [
+            "/usr/lib/frr/frrinit.sh start",
+            "sleep 2",
+            "while ! pgrep bgpd > /dev/null; do sleep 1; done",
+            "echo 'FRR started successfully'",
+        ]
+        candidate_router.create_file_from_string(
+            "#!/bin/bash\n" + "\n".join(startup_commands) + "\n",
+            "/etc/supervisor/startup.sh"
+        )
+        candidate_router.add_meta('post_start', '/bin/bash /etc/supervisor/startup.sh')
 
     # Inutilizzato, ma lasciato per coerenza con le altre configurazioni
     def get_lines(self) -> list[str]:
-        return [line.rstrip() for line in self._lines if line.strip()]
+        cleaned = []
+        skip_until_next_bang = False
+        
+        for line in self._lines:
+            stripped = line.strip()
+            
+            if not stripped:
+                continue
+            
+            if stripped in ('Building configuration...', 'Current configuration:'):
+                skip_until_next_bang = True
+                continue
+            
+            if skip_until_next_bang:
+                if stripped == '!':
+                    skip_until_next_bang = False
+                continue
+            
+            if stripped.startswith('frr version') or stripped.startswith('frr defaults'):
+                continue
+            
+            if stripped in ('end', '!'):
+                continue
+                
+            cleaned.append(stripped)
+        
+        return cleaned
 
     def _build_iface_name(self, iface_type: str, num: int) -> str:
         return f"{iface_type}{num}"
@@ -59,6 +97,11 @@ class FrrConfiguration(VendorConfiguration):
     def command_healthcheck(self) -> str:
         command = "pgrep bgpd"
         logging.debug(f"[{__class__}] command_healthcheck: `{command}`")
+        return command
+
+    def command_start_daemon(self) -> str:
+        command = "/usr/lib/frr/frrinit.sh start"
+        logging.debug(f"[{__class__}] command_start_daemon: `{command}`")
         return command
 
     def command_list_file(self) -> str:
