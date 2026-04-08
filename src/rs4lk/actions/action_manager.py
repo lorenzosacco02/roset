@@ -139,6 +139,7 @@ class ActionManager:
             routes_ipv6 = True
 
             if not summary:
+                print(f"Summary for device `{device_name}` is empty.")
                 converged_routers.append(False)
                 continue
 
