@@ -204,13 +204,12 @@ class Neighbour:
 
 
 class Topology:
-    __slots__ = ['_vendor_config', '_nodes', '_table_dump', '_ripe_api']
+    __slots__ = ['_vendor_config', '_nodes', '_table_dump']
 
     def __init__(self, vendor_config: VendorConfiguration, table_dump: TableDump) -> None:
         self._vendor_config: VendorConfiguration = vendor_config
         self._nodes: OrderedDict = OrderedDict()
         self._table_dump: TableDump = table_dump
-        self._ripe_api = RipeDb()
 
         self._build()
 
@@ -405,30 +404,36 @@ class Topology:
     def _infer_bgp_relationships(self) -> None:
         logging.info("Inferring BGP relationships...")
 
-        (import_rules, _) = self._ripe_api.get_local_as_rules(self._vendor_config.local_as)
+        (import_rules, _) = RipeDb.get_instance().get_local_as_rules(self._vendor_config.local_as)
 
-        # Remove 'afi XXYY' if it is a mp-import
         import_rules = set([" ".join(x.split(' ')[2:]) if 'afi' in x else x for x in import_rules])
 
         for remote_as_num, session in self._vendor_config.sessions.items():
             found = False
-            rule_pattern = f"from AS{remote_as_num}"
-            for rule in import_rules:
-                # Assign relationships a-la CAIDA (1=provider, 0=peer, 2=customer)
-                if rule_pattern in rule:
-                    found = True
+            
+            local_rel = RipeDb.get_instance().get_local_relationship(self._vendor_config.local_as, remote_as_num)
+            if local_rel is not None:
+                session.relationship = local_rel
+                rel_name = {0: "peer", 1: "provider", 2: "customer"}.get(local_rel, "unknown")
+                logging.info(f"Found LOCAL relationship AS{self._vendor_config.local_as} -> AS{remote_as_num}: {rel_name} ({local_rel}).")
+                found = True
+            
+            if not found:
+                rule_pattern = f"from AS{remote_as_num}"
+                for rule in import_rules:
+                    if rule_pattern in rule:
+                        found = True
 
-                    if 'any' in rule.lower():
-                        session.relationship = 1
-                    else:
-                        session.relationship = 2
+                        if 'any' in rule.lower():
+                            session.relationship = 1
+                        else:
+                            session.relationship = 2
 
-                    logging.info(f"Found relationship {rule_pattern}: {session.relationship}.")
-
-                    break
+                        logging.info(f"Found RIPE relationship {rule_pattern}: {session.relationship}.")
+                        break
 
             if not found:
-                logging.warning(f"Cannot find relationship {rule_pattern}, putting it as peer (0).")
+                logging.warning(f"Cannot find relationship for AS{remote_as_num}, putting it as peer (0).")
                 session.relationship = 0
 
         logging.debug(f"Resulting sessions: {self._vendor_config.sessions}")

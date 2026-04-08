@@ -17,6 +17,7 @@ class JunosConfiguration(VendorConfiguration):
                     "-oStrictHostKeyChecking=no -oConnectTimeout=1 vrnetlab@localhost \"{command}\"")
 
     def _remap_interfaces(self) -> None:
+        # Iface 0 is the mgmt interface
         last_iface_idx = [0]
         for iface in self.interfaces.values():
             if not isinstance(iface, VlanInterface):
@@ -51,10 +52,9 @@ class JunosConfiguration(VendorConfiguration):
         return 'vrnetlab/vr-vmx:18.2R1.9'
 
     def apply_to_network_scenario(self, net_scenario: Lab) -> None:
-        net_scenario.add_option('privileged_machines', True)
-
         candidate_name = f"as{self.local_as}"
         candidate_router = net_scenario.get_machine(candidate_name)
+        candidate_router.add_meta('privileged', True)
         candidate_router.add_meta('image', self.get_image())
         # Allocate slots for the interfaces
         candidate_router.add_meta('env', f"CLAB_INTFS={self.SUPPORTED_IFACES - 1}")
@@ -87,12 +87,12 @@ class JunosConfiguration(VendorConfiguration):
                 name_to_replace_unit = f"{name_to_replace} unit {unit}"
 
                 all_lines = re.sub(
-                    rf"\b{name_to_search_unit}\b",
+                    rf'\b{name_to_search_unit}\b',
                     name_to_replace_unit,
                     all_lines
                 )
                 all_lines = re.sub(
-                    rf"\b{name_to_search}\b",
+                    rf'\b{name_to_search}\b',
                     name_to_replace,
                     all_lines
                 )

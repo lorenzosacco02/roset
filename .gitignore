@@ -138,5 +138,9 @@ snapshots/*
 .DS_Store
 
 resources/*.conf
+resources/*.json
 resources/*.rsc
 vrnetlab/*
+*.mrt
+src/test_*
+docs/*
