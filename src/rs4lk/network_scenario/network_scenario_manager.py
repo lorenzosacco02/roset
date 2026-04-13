@@ -136,6 +136,27 @@ class NetworkScenarioManager:
                 logging.debug(f"[HEALTHCHECK] attempt {attempts}: no output, sleeping...")
                 time.sleep(5)
                 pass
+        
+        if hasattr(vendor_config, 'get_post_start_commands'):
+            post_commands = vendor_config.get_post_start_commands()
+            for cmd in post_commands:
+                logging.info(f"Executing post-start command: {cmd}")
+                exec_output = Kathara.get_instance().exec(
+                    machine_name=candidate_device.name,
+                    command=shlex.split(cmd),
+                    lab_name=net_scenario.name
+                )
+                try:
+                    while True:
+                        try:
+                            stdout, stderr = next(exec_output)
+                            stdout = stdout.decode('utf-8') if stdout else ""
+                            stderr = stderr.decode('utf-8') if stderr else ""
+                            logging.debug(f"[POST-START] stdout='{stdout}', stderr='{stderr}'")
+                        except StopIteration:
+                            break
+                except StopIteration:
+                    pass
 
     def start_other_devices(self, net_scenario: Lab, vendor_config: VendorConfiguration) -> None:
         logging.info("Starting all other devices...")

@@ -1,5 +1,6 @@
 import ipaddress
 import logging
+import os
 import re
 
 from Kathara.model.Lab import Lab
@@ -12,6 +13,7 @@ class FrrConfiguration(VendorConfiguration):
     CONFIG_FILE_PATH: str = "/etc/frr/frr.conf"
     VTYSH_COMMAND: str = "vtysh -c \"{command}\""
     PREFIX_REGEX: re.Pattern = re.compile(r"(\d+\.\d+\.\d+\.\d+/\d+)")
+    FIREWALL_CONFIG_PATH: str = "/home/lorenzo/Documenti/TesiMagistrale/myROSE-T/roset/resources/firewall_config.txt"
 
     def get_image(self) -> str:
         return 'kathara/frr:9'
@@ -60,6 +62,16 @@ class FrrConfiguration(VendorConfiguration):
             "/etc/supervisor/startup.sh"
         )
         candidate_router.add_meta('post_start', '/bin/bash /etc/supervisor/startup.sh')
+        
+        self._apply_firewall_config(candidate_router)
+    
+    def get_post_start_commands(self) -> list[str]:
+        commands = []
+        
+        if os.path.exists(self.FIREWALL_CONFIG_PATH):
+            commands.append('/bin/bash /etc/supervisor/firewall.sh')
+        
+        return commands
 
     # Inutilizzato, ma lasciato per coerenza con le altre configurazioni
     def get_lines(self) -> list[str]:
@@ -175,3 +187,33 @@ class FrrConfiguration(VendorConfiguration):
                 except ValueError:
                     continue
         return bgp_routes
+
+    def _apply_firewall_config(self, candidate_router) -> None:
+        if not os.path.exists(self.FIREWALL_CONFIG_PATH):
+            logging.debug(f"Firewall config file not found: {self.FIREWALL_CONFIG_PATH}")
+            return
+        
+        logging.info(f"Applying custom Firewall config from `{self.FIREWALL_CONFIG_PATH}`...")
+        
+        with open(self.FIREWALL_CONFIG_PATH, 'r') as f:
+            lines = f.read().strip().split('\n')
+        
+        startup_script = []
+        startup_script.append("#!/bin/bash")
+        startup_script.append("")
+        
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            startup_script.append(line)
+        
+        candidate_router.create_file_from_string(
+            "\n".join(startup_script) + "\n",
+            "/etc/supervisor/firewall.sh"
+        )
+        
+        candidate_router.create_file_from_string(
+            "\n".join(startup_script) + "\n",
+            "/etc/supervisor/firewall.sh"
+        )
