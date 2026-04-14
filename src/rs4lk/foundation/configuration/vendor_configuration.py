@@ -66,8 +66,8 @@ class VendorConfiguration(ConfigurationApplier, CommandsMixin, VendorFormatParse
             logging.warning(f"Skipping session with AS{remote_as} is in reserved range 64000-131071.")
             return False
         if self.local_as == remote_as:
-            logging.warning(f"Skipping session with AS{remote_as} is a iBGP peering.")
-            return False
+            logging.warning(f"Not skipping session with AS{remote_as} but is a iBGP peering.")
+            return True
 
         return True
 

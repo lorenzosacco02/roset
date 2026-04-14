@@ -145,3 +145,4 @@ vrnetlab/*
 *.mrt
 src/test_*
 docs/*
+test_as_candidate
