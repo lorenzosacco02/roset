@@ -1,4 +1,10 @@
-from ..foundation.configuration.vendor_configuration import VendorConfiguration
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..foundation.configuration.vendor_configuration import VendorConfiguration
+
 from .topology import BgpRouter
 
 
@@ -6,12 +12,12 @@ class RouterCandidate(BgpRouter):
     __slots__ = ['router_name', 'vendor', 'config_path', 'vendor_config']
 
     def __init__(self, router_name: str, vendor: str, config_path: str, local_as: int,
-                 vendor_config: VendorConfiguration | None = None) -> None:
+                 vendor_config: 'VendorConfiguration | None' = None) -> None:
         super().__init__(local_as, None)
         self.router_name: str = router_name
         self.vendor: str = vendor
         self.config_path: str = config_path
-        self.vendor_config: VendorConfiguration | None = vendor_config
+        self.vendor_config: 'VendorConfiguration | None' = vendor_config
 
     @property
     def machine_name(self) -> str:

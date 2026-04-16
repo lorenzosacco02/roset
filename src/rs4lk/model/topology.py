@@ -1,18 +1,23 @@
+from __future__ import annotations
+
 import ipaddress
 import logging
 import random
 from collections import OrderedDict
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sortedcontainers import SortedDict
 from sortedcontainers import SortedSet
 
 from .. import utils
-from ..foundation.configuration.vendor_configuration import VendorConfiguration
 from ..foundation.exceptions import TopologyError
 from ..model.collision_domain import CollisionDomain
 from ..mrt.table_dump import TableDump
 from ..webhooks.ripe_db import RipeDb
+
+if TYPE_CHECKING:
+    from ..foundation.configuration.vendor_configuration import VendorConfiguration
+    from .as_candidate import AsCandidate
 
 INTERNET_AS_NUM = 1
 
@@ -204,10 +209,12 @@ class Neighbour:
 
 
 class Topology:
-    __slots__ = ['_vendor_config', '_nodes', '_table_dump']
+    __slots__ = ['_vendor_config', '_as_candidate', '_nodes', '_table_dump']
 
-    def __init__(self, vendor_config: VendorConfiguration, table_dump: TableDump) -> None:
-        self._vendor_config: VendorConfiguration = vendor_config
+    def __init__(self, vendor_config: 'VendorConfiguration', table_dump: TableDump,
+                 as_candidate: 'AsCandidate | None' = None) -> None:
+        self._vendor_config: 'VendorConfiguration' = vendor_config
+        self._as_candidate: 'AsCandidate | None' = as_candidate
         self._nodes: OrderedDict = OrderedDict()
         self._table_dump: TableDump = table_dump
 
@@ -218,6 +225,12 @@ class Topology:
 
         self._infer_bgp_relationships()
 
+        if self._as_candidate:
+            self._build_multi_router_topology()
+        else:
+            self._build_single_router_topology()
+
+    def _build_single_router_topology(self) -> None:
         # First, add the candidate router
         candidate_local_as = self._vendor_config.local_as
         candidate_router = BgpRouter(candidate_local_as, None)
@@ -400,6 +413,10 @@ class Topology:
         cd = candidate_router.get_cd_by_iface_idx(empty_iface_idx)
         candidate_router.connect_to_neighbour(candidate_router_client, empty_iface_idx)
         candidate_router_client.connect_to_neighbour_by_cd(candidate_router, cd)
+
+    def _build_multi_router_topology(self) -> None:
+        logging.info("Building multi-router AS candidate topology...")
+        raise NotImplementedError("Multi-router topology not yet implemented")
 
     def _infer_bgp_relationships(self) -> None:
         logging.info("Inferring BGP relationships...")
