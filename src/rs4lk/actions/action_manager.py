@@ -32,9 +32,10 @@ class ActionManager:
             self._actions: list[Action] = list(filter(lambda x: x.name() not in exclude, self.DEFAULT_ACTIONS))
 
     def start(
-            self, config: VendorConfiguration, topology: Topology, table_dump: TableDump, net_scenario: Lab
+            self, config: VendorConfiguration, topology: Topology, table_dump: TableDump, net_scenario: Lab,
+            candidate_machine_names: list[str] | None = None
     ) -> list[ActionResult]:
-        self._check_configuration_validity(config, net_scenario)
+        self._check_configuration_validity(config, net_scenario, candidate_machine_names)
 
         converged = self._wait_convergence(topology, net_scenario)
         if not converged:
@@ -51,15 +52,39 @@ class ActionManager:
         return results
 
     @staticmethod
-    def _check_configuration_validity(config: VendorConfiguration, net_scenario: Lab) -> None:
-        candidate_device = net_scenario.get_machine(f"as{config.local_as}")
+    def _check_configuration_validity(config: VendorConfiguration, net_scenario: Lab,
+                                   candidate_machine_names: list[str] | None = None) -> None:
+        if candidate_machine_names is None:
+            candidate_machine_names = [f"as{config.local_as}"]
 
-        # Check until the file is copied
-        found = False
-        while not found:
+        for machine_name in candidate_machine_names:
+            try:
+                candidate_device = net_scenario.get_machine(machine_name)
+            except Exception:
+                logging.warning(f"Device {machine_name} not found, skipping config check")
+                continue
+
+            found = False
+            while not found:
+                exec_output = Kathara.get_instance().exec(
+                    machine_name=candidate_device.name,
+                    command=shlex.split(config.command_list_file()),
+                    lab_name=net_scenario.name
+                )
+
+                output = ""
+                while True:
+                    try:
+                        (stdout, stderr) = next(exec_output)
+                        output += stdout.decode('utf-8')
+                    except StopIteration:
+                        break
+
+                found = config.check_file_existence(output)
+
             exec_output = Kathara.get_instance().exec(
                 machine_name=candidate_device.name,
-                command=shlex.split(config.command_list_file()),
+                command=shlex.split(config.command_test_configuration()),
                 lab_name=net_scenario.name
             )
 
@@ -71,25 +96,8 @@ class ActionManager:
                 except StopIteration:
                     break
 
-            found = config.check_file_existence(output)
-
-        # Now check if there are any errors in the configuration
-        exec_output = Kathara.get_instance().exec(
-            machine_name=candidate_device.name,
-            command=shlex.split(config.command_test_configuration()),
-            lab_name=net_scenario.name
-        )
-
-        output = ""
-        while True:
-            try:
-                (stdout, stderr) = next(exec_output)
-                output += stdout.decode('utf-8')
-            except StopIteration:
-                break
-
-        if not config.check_configuration_validity(output):
-            raise ConfigValidationError(output)
+            if not config.check_configuration_validity(output):
+                raise ConfigValidationError(output)
 
     def _wait_convergence(self, topology: Topology, net_scenario: Lab) -> bool:
         logging.info("Checking routers convergence...")
