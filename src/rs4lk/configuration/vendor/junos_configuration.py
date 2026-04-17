@@ -51,8 +51,8 @@ class JunosConfiguration(VendorConfiguration):
     def get_image(self) -> str:
         return 'vrnetlab/vr-vmx:18.2R1.9'
 
-    def apply_to_network_scenario(self, net_scenario: Lab) -> None:
-        candidate_name = f"as{self.local_as}"
+    def apply_to_network_scenario(self, net_scenario: Lab, machine_name: str | None = None) -> None:
+        candidate_name = machine_name or f"as{self.local_as}"
         candidate_router = net_scenario.get_machine(candidate_name)
         candidate_router.add_meta('privileged', True)
         candidate_router.add_meta('image', self.get_image())
