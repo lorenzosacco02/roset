@@ -34,6 +34,10 @@ class Node:
     def name(self) -> str:
         return str(self.identifier)
 
+    @property
+    def machine_name(self) -> str:
+        return self.name
+
     def connect_interface_to_cd(self, cd: str, iface_idx: int | None = None) -> int | None:
         new_idx = False
         if iface_idx is None:
@@ -120,12 +124,16 @@ class Client(Node):
     def name(self) -> str:
         return f"as{self.identifier}_client"
 
+    @property
+    def machine_name(self) -> str:
+        return self.name
+
     def __repr__(self) -> str:
         return f"Client {self.name} - neighbours={self.neighbours}"
 
 
 class BgpRouter(Node):
-    __slots__ = ['relationship', 'candidate', 'local_networks', 'announced_networks', 'remote_neighbours']
+    __slots__ = ['relationship', 'candidate', 'local_networks', 'announced_networks', 'remote_neighbours', '_machine_name']
 
     def __init__(self, local_as: int, relationship: int | None) -> None:
         super().__init__(local_as)
@@ -135,10 +143,18 @@ class BgpRouter(Node):
         self.local_networks: dict[int, list] = {4: [], 6: []}
         self.announced_networks: dict[int, list] = {4: [], 6: []}
         self.remote_neighbours: dict = {}
+        self._machine_name: str | None = None
 
     @property
     def name(self) -> str:
         return f"as{self.identifier}"
+
+    @property
+    def machine_name(self) -> str:
+        return self._machine_name if self._machine_name else self.name
+
+    def set_machine_name(self, name: str) -> None:
+        self._machine_name = name
 
     def is_provider(self) -> bool:
         return self.relationship == 1
@@ -239,6 +255,7 @@ class Topology:
         candidate_local_as = self._vendor_config.local_as
         candidate_router = BgpRouter(candidate_local_as, None)
         candidate_router.candidate = True
+        candidate_router.set_machine_name(f"as{candidate_local_as}")
         # Layout all the declared interfaces inside the device
         for iface_idx in SortedSet(self._vendor_config.iface_to_iface_idx.values()):
             cd = CollisionDomain.get_instance().get(
@@ -427,6 +444,7 @@ class Topology:
         for rc in as_candidate.routers:
             router = BgpRouter(rc.identifier, None)
             router.candidate = True
+            router.set_machine_name(rc.machine_name)
 
             vendor_config = rc.vendor_config
             if vendor_config and vendor_config.interfaces:
@@ -738,7 +756,17 @@ class Topology:
     def all(self) -> Any:
         return self._nodes.items()
 
-    def get(self, identifier: int) -> Node:
+    def get_candidate_routers(self) -> list[BgpRouter]:
+        return [node for node in self._nodes.values() if isinstance(node, BgpRouter) and node.candidate]
+
+    def get_candidate_router_config(self, machine_name: str) -> VendorConfiguration | None:
+        if self._as_candidate:
+            for rc in self._as_candidate.routers:
+                if rc.machine_name == machine_name:
+                    return rc.vendor_config
+        return None
+
+    def get(self, identifier: int | str) -> Node:
         if identifier not in self._nodes:
             raise TopologyError(f"Node {identifier} not found in topology")
 
