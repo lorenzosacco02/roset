@@ -514,6 +514,9 @@ class Topology:
                 if not found:
                     session.relationship = 0
 
+                if session.relationship is not None:
+                    router.relationship = session.relationship
+
     def _collect_external_sessions(self, candidate_routers: dict) -> list[tuple[str, str, BgpSession]]:
         external_sessions = []
 
@@ -697,7 +700,8 @@ class Topology:
                 router.connect_interface_to_cd(cd, i)
 
     def _add_internet_and_providers(self, candidate_routers: dict) -> None:
-        providers_routers = [n for n in self._nodes.values() if isinstance(n, BgpRouter) and n.is_provider()]
+        providers_routers = [n for n in self._nodes.values() 
+                      if isinstance(n, BgpRouter) and n.is_provider() and not n.is_candidate()]
         providers_ases = set(n.identifier for n in providers_routers)
 
         peering_networks_v4 = ipaddress.ip_network("10.0.0.0/8").subnets(new_prefix=24)
