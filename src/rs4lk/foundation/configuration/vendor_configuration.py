@@ -82,6 +82,8 @@ class VendorConfiguration(ConfigurationApplier, CommandsMixin, VendorFormatParse
                     continue
 
                 peering.local_ip = local_ip
+                iface_name = iface.phy.name if isinstance(iface, VlanInterface) else iface.name
+                peering.iface_idx = self.iface_to_iface_idx[iface_name]
 
             session.iface = iface
 

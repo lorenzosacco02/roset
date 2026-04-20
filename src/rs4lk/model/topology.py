@@ -18,6 +18,7 @@ from ..webhooks.ripe_db import RipeDb
 if TYPE_CHECKING:
     from ..foundation.configuration.vendor_configuration import VendorConfiguration
     from .as_candidate import AsCandidate
+    from .bgp_session import BgpSession
 
 INTERNET_AS_NUM = 1
 
@@ -52,14 +53,14 @@ class Node:
 
         return iface_idx if new_idx else None
 
-    def connect_to_neighbour(self, neighbour: 'Node', iface_idx: int | None = None) -> int | None:
-        new_idx = False
-        if iface_idx is None:
-            iface_idx = max(self.neighbours.keys()) + 1 if self.neighbours else 0
-            new_idx = True
-
+    def connect_to_neighbour(self, neighbour: 'Node', iface_idx: int | None = None, cd: str | None = None) -> int | None:
+        new_idx = iface_idx is None
         if new_idx:
-            cd = CollisionDomain.get_instance().get(self.name, neighbour.name)
+            iface_idx = max(self.neighbours.keys()) + 1 if self.neighbours else 0
+
+        if iface_idx not in self._iface_idx_to_cd:
+            if cd is None:
+                cd = CollisionDomain.get_instance().get(self.machine_name, neighbour.machine_name)
             self._iface_idx_to_cd[iface_idx] = cd
         else:
             cd = self._iface_idx_to_cd[iface_idx]
@@ -513,8 +514,8 @@ class Topology:
                 if not found:
                     session.relationship = 0
 
-    def _collect_external_sessions(self, candidate_routers: dict) -> dict:
-        external_sessions = {}
+    def _collect_external_sessions(self, candidate_routers: dict) -> list[tuple[str, str, BgpSession]]:
+        external_sessions = []
 
         for router_name, router in candidate_routers.items():
             vendor_config = None
@@ -530,29 +531,38 @@ class Topology:
                 if remote_as == self._as_candidate.local_as:
                     continue
 
-                if remote_as not in external_sessions:
-                    external_sessions[remote_as] = session
-                else:
-                    if session.relationship is not None:
-                        external_sessions[remote_as].relationship = session.relationship
+                external_sessions.append((router_name, remote_as, session))
 
         return external_sessions
 
-    def _add_external_neighbors(self, candidate_routers: dict, external_sessions: dict) -> None:
-        for as_num, session in external_sessions.items():
+    def _add_external_neighbors(self, candidate_routers: dict, external_sessions: list[tuple[str, str, BgpSession]]) -> None:
+        processed_external_as: dict[int, BgpRouter] = {}
+        processed_connections: set[tuple[str, int]] = set()
+
+        for router_name, as_num, session in external_sessions:
             if not session.iface:
                 continue
 
-            neighbour_router = BgpRouter(as_num, session.relationship)
-            self._nodes[as_num] = neighbour_router
+            connection_key = (router_name, as_num)
+            if connection_key in processed_connections:
+                continue
 
-            first_candidate = next(iter(candidate_routers.values()))
-            cd = first_candidate.get_cd_by_iface_idx(session.iface_idx)
+            processed_connections.add(connection_key)
 
-            for router_name, router in candidate_routers.items():
-                router.connect_to_neighbour(neighbour_router, session.iface_idx)
+            if as_num not in processed_external_as:
+                neighbour_router = BgpRouter(as_num, session.relationship)
+                self._nodes[as_num] = neighbour_router
+                processed_external_as[as_num] = neighbour_router
+            else:
+                neighbour_router = processed_external_as[as_num]
+                if session.relationship is not None and neighbour_router.relationship is None:
+                    neighbour_router.relationship = session.relationship
 
-            neighbour_router.connect_to_neighbour_by_cd(first_candidate, cd)
+            router = candidate_routers[router_name]
+
+            cd = router.get_cd_by_iface_idx(session.iface_idx)
+            router.connect_to_neighbour(neighbour_router, session.iface_idx)
+            neighbour_router.connect_to_neighbour(router, cd=cd)
 
             for peering in session.peerings:
                 if peering.local_ip is None:
@@ -560,14 +570,16 @@ class Topology:
 
                 r_iface_ip = ipaddress.ip_interface(f"{peering.remote_ip}/{peering.local_ip.network.prefixlen}")
                 neighbour_router.add_local_iface_ip(
-                    0, first_candidate, r_iface_ip, vlan=session.vlan, is_public=True
+                    0, router, r_iface_ip, vlan=session.vlan, is_public=True
                 )
-                first_candidate.add_local_iface_ip(
-                    session.iface_idx, neighbour_router, peering.local_ip, vlan=session.vlan, is_public=True
+                router.add_local_iface_ip(
+                    peering.iface_idx, neighbour_router, peering.local_ip, vlan=session.vlan, is_public=True
                 )
 
     def _connect_candidate_routers_internal(self, candidate_routers: dict) -> None:
         logging.info("Connecting candidate routers internally (iBGP)...")
+
+        connected_pairs: set[tuple[str, str]] = set()
 
         for router_name, router in candidate_routers.items():
             vendor_config = None
@@ -587,11 +599,29 @@ class Topology:
                     if peering.local_ip is None or peering.remote_ip is None:
                         continue
 
+                    logging.debug(f"  Checking {router_name}: local={peering.local_ip} -> remote={peering.remote_ip}")
+
+                    continue_external = False
                     for other_name, other_router in candidate_routers.items():
                         if other_name == router_name:
                             continue
 
+                        pair_key = tuple(sorted([router_name, other_name]))
+                        if pair_key in connected_pairs:
+                            continue
+
+                        if peering.iface_idx in router.neighbours:
+                            for existing_neighbour_name, existing_neighbour in router.neighbours[peering.iface_idx].items():
+                                if existing_neighbour.neighbour.machine_name == other_router.machine_name:
+                                    logging.debug(f"    Skipping {router_name} -> {other_name}: already on iface {peering.iface_idx}")
+                                    continue_external = True
+                                    break
+                            if continue_external:
+                                continue
+
                         other_vendor_config = None
+                        other_session_match = None
+                        other_peering_match = None
                         for rc in self._as_candidate.routers:
                             if rc.router_name == other_name:
                                 other_vendor_config = rc.vendor_config
@@ -600,15 +630,58 @@ class Topology:
                         if not other_vendor_config:
                             continue
 
-                        for other_remote_as, other_session in other_vendor_config.sessions.items():
+                        for other_remote_as, other_sess in other_vendor_config.sessions.items():
                             if other_remote_as != self._as_candidate.local_as:
                                 continue
 
-                            for other_peering in other_session.peerings:
-                                if other_peering.remote_ip == peering.local_ip:
-                                    router.connect_to_neighbour(other_router)
-                                    other_router.connect_to_neighbour(router)
-                                    logging.info(f"  Connected {router_name} <-> {other_name} (iBGP)")
+                            for other_peering in other_sess.peerings:
+                                logging.debug(f"    vs {other_name}: local={other_peering.local_ip} -> remote={other_peering.remote_ip}")
+                                if other_peering.remote_ip == peering.local_ip.ip:
+                                    other_session_match = other_sess
+                                    other_peering_match = other_peering
+                                    break
+                            if other_session_match:
+                                break
+
+                        if other_session_match is None:
+                            continue
+
+                        if peering.iface_idx in router.neighbours:
+                            for existing_neighbour_name, existing_neighbour in router.neighbours[peering.iface_idx].items():
+                                if existing_neighbour.neighbour.machine_name == other_router.machine_name:
+                                    logging.debug(f"  Skipping {router_name} -> {other_name}: already connected on iface {peering.iface_idx}")
+                                    continue_external = True
+                                    break
+                            if continue_external:
+                                continue
+
+                        if peering.iface_idx in router.neighbours:
+                            for existing_neighbour_name, existing_neighbour in router.neighbours[peering.iface_idx].items():
+                                if existing_neighbour.neighbour.machine_name == other_router.machine_name:
+                                    logging.debug(f"    Skipping: already connected")
+                                    continue_external = True
+                                    break
+                            if continue_external:
+                                continue
+
+                        connected_pairs.add(pair_key)
+
+                        cd = router.get_cd_by_iface_idx(peering.iface_idx)
+
+                        router.connect_to_neighbour(other_router, peering.iface_idx, cd)
+                        other_router._iface_idx_to_cd[other_peering_match.iface_idx] = cd
+                        other_router.connect_to_neighbour(router, other_peering_match.iface_idx, cd)
+
+                        router.add_local_iface_ip(
+                            peering.iface_idx, other_router, peering.local_ip,
+                            vlan=session.vlan, is_public=True
+                        )
+                        other_router.add_local_iface_ip(
+                            other_peering_match.iface_idx, router, other_peering.local_ip,
+                            vlan=other_sess.vlan, is_public=True
+                        )
+
+                        logging.info(f"  Connected {router_name} (iface {peering.iface_idx}) <-> {other_name} (iface {other_peering_match.iface_idx}) via {cd} (iBGP)")
 
     def _add_dummy_interfaces_candidate_routers(self, candidate_routers: dict) -> None:
         for router in candidate_routers.values():
@@ -620,7 +693,7 @@ class Topology:
                 if i in router.neighbours:
                     continue
 
-                cd = CollisionDomain.get_instance().get(router.name, f"dummy_net_{i}")
+                cd = CollisionDomain.get_instance().get(router.machine_name, f"dummy_net_{i}")
                 router.connect_interface_to_cd(cd, i)
 
     def _add_internet_and_providers(self, candidate_routers: dict) -> None:
