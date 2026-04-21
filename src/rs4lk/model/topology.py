@@ -844,7 +844,11 @@ class Topology:
         return None
 
     def get(self, identifier: int | str) -> Node:
-        if identifier not in self._nodes:
-            raise TopologyError(f"Node {identifier} not found in topology")
-
-        return self._nodes[identifier]
+        if identifier in self._nodes:
+            return self._nodes[identifier]
+        
+        for node in self._nodes.values():
+            if node.identifier == identifier:
+                return node
+        
+        raise TopologyError(f"Node {identifier} not found in topology")

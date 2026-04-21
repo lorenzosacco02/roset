@@ -31,7 +31,7 @@ class AntiSpoofingAction(Action):
         candidate = topology.get(config.local_as)
         candidate_client_name = f"as{candidate.identifier}_client"
         _, candidate_client_iface_idx = candidate.get_node_by_name(candidate_client_name)
-        candidate_device = net_scenario.get_machine(candidate.name)
+        candidate_device = net_scenario.get_machine(candidate.machine_name)
         candidate_client = net_scenario.get_machine(candidate_client_name)
         candidate_assigned_ips = set(
             itertools.chain.from_iterable(map(lambda x: x.addresses, config.interfaces.values()))
@@ -53,7 +53,7 @@ class AntiSpoofingAction(Action):
 
         for _, provider in providers_routers:
             logging.info(f"Reading networks from provider AS{provider.identifier}...")
-            device_networks = action_utils.get_bgp_networks(net_scenario.get_machine(provider.name))
+            device_networks = action_utils.get_bgp_networks(net_scenario.get_machine(provider.machine_name))
             all_announced_networks[4].update(device_networks[4])
             all_announced_networks[6].update(device_networks[6])
 
@@ -84,7 +84,7 @@ class AntiSpoofingAction(Action):
             internet_router = topology.get(INTERNET_AS_NUM)
             internet_router_client_name = f"as{INTERNET_AS_NUM}_client"
             _, internet_router_client_iface_idx = internet_router.get_node_by_name(internet_router_client_name)
-            internet_router_device = net_scenario.get_machine(internet_router.name)
+            internet_router_device = net_scenario.get_machine(internet_router.machine_name)
             internet_router_ip = ipaddress.ip_interface(f"{next(spoofing_hosts)}/{spoofing_net.prefixlen}")
             self._ip_addr_add(internet_router_device, internet_router_client_iface_idx, internet_router_ip)
 
@@ -120,7 +120,7 @@ class AntiSpoofingAction(Action):
 
                 provider_client_name = f"as{provider.identifier}_client"
                 _, provider_client_iface_idx = provider.get_node_by_name(provider_client_name)
-                provider_device = net_scenario.get_machine(provider.name)
+                provider_device = net_scenario.get_machine(provider.machine_name)
                 provider_ip = ipaddress.ip_interface(f"{next(provider_net_hosts)}/{provider_net.prefixlen}")
                 self._ip_addr_add(provider_device, provider_client_iface_idx, provider_ip)
 
@@ -131,7 +131,7 @@ class AntiSpoofingAction(Action):
                 self._ip_addr_add(provider_client, 0, provider_client_ip)
                 self._ip_route_add(provider_client, default_net, provider_ip.ip, 0)
 
-                candidate_neigh, _ = provider.get_neighbour_by_name(candidate.name)
+                candidate_neigh, _ = provider.get_neighbour_by_name(candidate.machine_name)
                 candidate_neigh_ips = candidate_neigh.get_neighbours_ips(is_public=True)
 
                 cand_peering_ip = action_utils.get_active_neighbour_peering_ip(
