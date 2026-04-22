@@ -30,7 +30,8 @@ class FrrConfiguration(VendorConfiguration):
                 phy_idx = self.iface_to_iface_idx[iface.phy.name]
                 self.iface_to_iface_idx[iface.name] = phy_idx
 
-    def apply_to_network_scenario(self, net_scenario: Lab, machine_name: str | None = None) -> None:
+    def apply_to_network_scenario(self, net_scenario: Lab, machine_name: str | None = None,
+                              startup_script_path: str | None = None) -> None:
         candidate_name = machine_name or f"as{self.local_as}"
         candidate_router = net_scenario.get_machine(candidate_name)
         candidate_router.add_meta('privileged', True)
@@ -63,7 +64,7 @@ class FrrConfiguration(VendorConfiguration):
         )
         candidate_router.add_meta('post_start', '/bin/bash /etc/supervisor/startup.sh')
         
-        self._apply_firewall_config(candidate_router)
+        self._apply_firewall_config(candidate_router, startup_script_path)
     
     def get_post_start_commands(self) -> list[str]:
         commands = []
@@ -188,14 +189,18 @@ class FrrConfiguration(VendorConfiguration):
                     continue
         return bgp_routes
 
-    def _apply_firewall_config(self, candidate_router) -> None:
-        if not os.path.exists(self.FIREWALL_CONFIG_PATH):
-            logging.debug(f"Firewall config file not found: {self.FIREWALL_CONFIG_PATH}")
+    def _apply_firewall_config(self, candidate_router, startup_script_path: str | None = None) -> None:
+        if not startup_script_path:
+            logging.warning("No startup script path specified, skipping firewall config")
             return
         
-        logging.info(f"Applying custom Firewall config from `{self.FIREWALL_CONFIG_PATH}`...")
+        if not os.path.exists(startup_script_path):
+            logging.debug(f"Firewall config file not found: {startup_script_path}")
+            return
         
-        with open(self.FIREWALL_CONFIG_PATH, 'r') as f:
+        logging.info(f"Applying custom Firewall config from `{startup_script_path}`...")
+        
+        with open(startup_script_path, 'r') as f:
             lines = f.read().strip().split('\n')
         
         startup_script = []

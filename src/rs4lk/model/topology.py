@@ -843,6 +843,13 @@ class Topology:
                     return rc.vendor_config
         return None
 
+    def get_candidate_router_startup(self, machine_name: str) -> str | None:
+        if self._as_candidate:
+            for rc in self._as_candidate.routers:
+                if rc.machine_name == machine_name:
+                    return rc.startup_script_path
+        return None
+
     def get(self, identifier: int | str) -> Node:
         if identifier in self._nodes:
             return self._nodes[identifier]

@@ -52,6 +52,7 @@ class AsCandidateParser:
         name = router_data['name']
         vendor = router_data['vendor']
         config_path = router_data['config_path']
+        startup_script_path = router_data.get('startup_script_path')
 
         vendor_config = self._grammar_parser.parse(config_path, vendor)
 
@@ -66,7 +67,8 @@ class AsCandidateParser:
             vendor=vendor,
             config_path=config_path,
             local_as=vendor_config.local_as,
-            vendor_config=vendor_config
+            vendor_config=vendor_config,
+            startup_script_path=startup_script_path
         )
 
         return router

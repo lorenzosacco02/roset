@@ -147,3 +147,4 @@ src/test_*
 docs/*
 test_as_candidate
 more_routers
+single_router
