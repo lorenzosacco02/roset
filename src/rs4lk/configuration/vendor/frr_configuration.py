@@ -12,8 +12,7 @@ from ...model.interface import Interface, VlanInterface
 class FrrConfiguration(VendorConfiguration):
     CONFIG_FILE_PATH: str = "/etc/frr/frr.conf"
     VTYSH_COMMAND: str = "vtysh -c \"{command}\""
-    PREFIX_REGEX: re.Pattern = re.compile(r"(\d+\.\d+\.\d+\.\d+/\d+)")
-    FIREWALL_CONFIG_PATH: str = "/home/lorenzo/Documenti/TesiMagistrale/myROSE-T/roset/resources/firewall_config.txt"
+    PREFIX_REGEX: re.Pattern = re.compile(r"(\d+\.\d+\.\d+/\d+)")
 
     def get_image(self) -> str:
         return 'kathara/frr:9'
@@ -64,15 +63,10 @@ class FrrConfiguration(VendorConfiguration):
         )
         candidate_router.add_meta('post_start', '/bin/bash /etc/supervisor/startup.sh')
         
-        self._apply_firewall_config(candidate_router, startup_script_path)
+        self._apply_startup_file(candidate_router, startup_script_path)
     
     def get_post_start_commands(self) -> list[str]:
-        commands = []
-        
-        if os.path.exists(self.FIREWALL_CONFIG_PATH):
-            commands.append('/bin/bash /etc/supervisor/firewall.sh')
-        
-        return commands
+        return []
 
     # Inutilizzato, ma lasciato per coerenza con le altre configurazioni
     def get_lines(self) -> list[str]:
@@ -189,16 +183,16 @@ class FrrConfiguration(VendorConfiguration):
                     continue
         return bgp_routes
 
-    def _apply_firewall_config(self, candidate_router, startup_script_path: str | None = None) -> None:
+    def _apply_startup_file(self, candidate_router, startup_script_path: str | None = None) -> None:
         if not startup_script_path:
-            logging.warning("No startup script path specified, skipping firewall config")
+            logging.debug("No startup script path specified, skipping")
             return
         
         if not os.path.exists(startup_script_path):
-            logging.debug(f"Firewall config file not found: {startup_script_path}")
+            logging.debug(f"Startup script file not found: {startup_script_path}")
             return
         
-        logging.info(f"Applying custom Firewall config from `{startup_script_path}`...")
+        logging.info(f"Applying startup script from `{startup_script_path}`...")
         
         with open(startup_script_path, 'r') as f:
             lines = f.read().strip().split('\n')
@@ -215,10 +209,7 @@ class FrrConfiguration(VendorConfiguration):
         
         candidate_router.create_file_from_string(
             "\n".join(startup_script) + "\n",
-            "/etc/supervisor/firewall.sh"
+            "/etc/supervisor/startup_script.sh"
         )
         
-        candidate_router.create_file_from_string(
-            "\n".join(startup_script) + "\n",
-            "/etc/supervisor/firewall.sh"
-        )
+        candidate_router.add_meta('post_start', '/bin/bash /etc/supervisor/startup_script.sh')
