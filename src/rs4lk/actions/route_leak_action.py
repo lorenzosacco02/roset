@@ -24,11 +24,11 @@ class RouteLeakAction(Action):
         action_result = ActionResult(self)
 
         candidate = topology.get(config.local_as)
-        candidate_device = net_scenario.get_machine(candidate.name)
+        candidate_device = net_scenario.get_machine(candidate.machine_name)
 
         all_announced_networks = {4: set(), 6: set()}
-        # Get all providers
-        providers_routers = list(filter(lambda x: x[1].is_provider(), topology.all()))
+        # Get all providers (excluding candidate routers)
+        providers_routers = list(filter(lambda x: x[1].is_provider() and not x[1].is_candidate(), topology.all()))
         if len(providers_routers) == 0:
             logging.warning("No providers found, skipping check...")
             action_result.add_result(WARNING, "No providers found.")
@@ -36,7 +36,7 @@ class RouteLeakAction(Action):
 
         for _, provider in providers_routers:
             logging.info(f"Reading networks from provider AS{provider.identifier}...")
-            device_networks = action_utils.get_bgp_networks(net_scenario.get_machine(provider.name))
+            device_networks = action_utils.get_bgp_networks(net_scenario.get_machine(provider.machine_name))
             all_announced_networks[4].update(device_networks[4])
             all_announced_networks[6].update(device_networks[6])
 
@@ -81,11 +81,11 @@ class RouteLeakAction(Action):
                                                       f"customer AS{customer.identifier} towards candidate AS.")
                     continue
 
-                customer_device = net_scenario.get_machine(customer.name)
+                customer_device = net_scenario.get_machine(customer.machine_name)
 
                 # Announce the spoofed network from the customer
                 self._vtysh_network(customer_device, customer.identifier, spoofing_net)
-                customer_neigh, _ = candidate.get_neighbour_by_name(customer.name)
+                customer_neigh, _ = candidate.get_neighbour_by_name(customer.machine_name)
                 customer_neigh_ips = customer_neigh.get_neighbours_ips(is_public=True)
 
                 customer_peering_ip = action_utils.get_active_neighbour_peering_ip(
@@ -111,7 +111,7 @@ class RouteLeakAction(Action):
                         break
 
                 for _, provider in providers_routers:
-                    provider_device = net_scenario.get_machine(provider.name)
+                    provider_device = net_scenario.get_machine(provider.machine_name)
 
                     candidate_neigh, _ = provider.get_neighbour_by_name(candidate.name)
                     candidate_neigh_ips = candidate_neigh.get_neighbours_ips(is_public=True)

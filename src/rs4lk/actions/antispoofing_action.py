@@ -44,8 +44,8 @@ class AntiSpoofingAction(Action):
         Kathara.get_instance().copy_files(candidate_client, {'/host_spoof_check.py': content})
 
         all_announced_networks = {4: set(), 6: set()}
-        # Get all providers
-        providers_routers = list(filter(lambda x: x[1].is_provider(), topology.all()))
+        # Get all providers (excluding candidate routers)
+        providers_routers = list(filter(lambda x: x[1].is_provider() and not x[1].is_candidate(), topology.all()))
         if len(providers_routers) == 0:
             logging.warning("No providers found, skipping check...")
             action_result.add_result(WARNING, "No providers found.")
@@ -131,7 +131,7 @@ class AntiSpoofingAction(Action):
                 self._ip_addr_add(provider_client, 0, provider_client_ip)
                 self._ip_route_add(provider_client, default_net, provider_ip.ip, 0)
 
-                candidate_neigh, _ = provider.get_neighbour_by_name(candidate.machine_name)
+                candidate_neigh, _ = provider.get_neighbour_by_name(candidate.name)
                 candidate_neigh_ips = candidate_neigh.get_neighbours_ips(is_public=True)
 
                 cand_peering_ip = action_utils.get_active_neighbour_peering_ip(
