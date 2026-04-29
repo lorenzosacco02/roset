@@ -22,6 +22,10 @@ class RouterCandidate(BgpRouter):
         self.startup_script_path: str | None = startup_script_path
 
     @property
+    def name(self) -> str:
+        return self.machine_name
+
+    @property
     def machine_name(self) -> str:
         return f"as{self.identifier}_{self.router_name}"
 

@@ -6,7 +6,7 @@ import time
 from Kathara.manager.Kathara import Kathara
 from Kathara.model.Lab import Lab
 from Kathara.model.Machine import Machine
-
+from ..model.as_candidate import AsCandidate
 from .antispoofing_action import AntiSpoofingAction
 from .global_information_action import GlobalInformationAction
 from .route_leak_action import RouteLeakAction
@@ -32,46 +32,46 @@ class ActionManager:
             self._actions: list[Action] = list(filter(lambda x: x.name() not in exclude, self.DEFAULT_ACTIONS))
 
     def start(
-            self, config: VendorConfiguration, topology: Topology, table_dump: TableDump, net_scenario: Lab,
-            candidate_machine_names: list[str] | None = None
+        self, as_candidate: AsCandidate, topology: Topology, table_dump: TableDump, net_scenario: Lab,
     ) -> list[ActionResult]:
-        self._check_configuration_validity(config, net_scenario, candidate_machine_names)
+        self._check_configuration_validity(as_candidate, net_scenario)
 
         converged = self._wait_convergence(topology, net_scenario)
         if not converged:
             raise BgpRuntimeError("BGP did not converge")
+
+        logging.info("Building neighbor map...")
+        as_candidate.build_neighbor_map(topology, net_scenario)
 
         results = []
 
         logging.info("Starting MANRS actions check...")
         for action in self._actions:
             logging.info(f"Starting `{action.display_name()}` verification...")
-            action_result = action.verify(config, table_dump, topology, net_scenario)
+            action_result = action.verify(as_candidate, table_dump, topology, net_scenario)
             results.append(action_result)
 
         return results
 
     @staticmethod
-    def _check_configuration_validity(config: VendorConfiguration, net_scenario: Lab,
-                                   candidate_machine_names: list[str] | None = None) -> None:
-        if candidate_machine_names is None:
-            candidate_machine_names = [f"as{config.local_as}"]
+    def _check_configuration_validity(as_candidate: AsCandidate, net_scenario: Lab) -> None:
+        for router in as_candidate.routers:
+            if not router.vendor_config:
+                continue
 
-        for machine_name in candidate_machine_names:
             try:
-                candidate_device = net_scenario.get_machine(machine_name)
+                candidate_device = net_scenario.get_machine(router.machine_name)
             except Exception:
-                logging.warning(f"Device {machine_name} not found, skipping config check")
+                logging.warning(f"Device {router.machine_name} not found, skipping config check")
                 continue
 
             found = False
             while not found:
                 exec_output = Kathara.get_instance().exec(
                     machine_name=candidate_device.name,
-                    command=shlex.split(config.command_list_file()),
+                    command=shlex.split(router.vendor_config.command_list_file()),
                     lab_name=net_scenario.name
                 )
-
                 output = ""
                 while True:
                     try:
@@ -79,15 +79,13 @@ class ActionManager:
                         output += stdout.decode('utf-8')
                     except StopIteration:
                         break
-
-                found = config.check_file_existence(output)
+                found = router.vendor_config.check_file_existence(output)
 
             exec_output = Kathara.get_instance().exec(
                 machine_name=candidate_device.name,
-                command=shlex.split(config.command_test_configuration()),
+                command=shlex.split(router.vendor_config.command_test_configuration()),
                 lab_name=net_scenario.name
             )
-
             output = ""
             while True:
                 try:
@@ -96,7 +94,7 @@ class ActionManager:
                 except StopIteration:
                     break
 
-            if not config.check_configuration_validity(output):
+            if not router.vendor_config.check_configuration_validity(output):
                 raise ConfigValidationError(output)
 
     def _wait_convergence(self, topology: Topology, net_scenario: Lab) -> bool:

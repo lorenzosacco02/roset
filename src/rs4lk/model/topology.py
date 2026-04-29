@@ -437,16 +437,10 @@ class Topology:
         candidate_router_client.connect_to_neighbour_by_cd(candidate_router, cd)
 
     def _build_multi_router_topology(self) -> None:
-        logging.info("Building multi-router AS candidate topology...")
-
-        as_candidate = self._as_candidate
-
         candidate_routers = {}
-        for rc in as_candidate.routers:
-            router = BgpRouter(rc.identifier, None)
-            router.candidate = True
-            router.set_machine_name(rc.machine_name)
-
+        for rc in self._as_candidate.routers:
+            rc.candidate = True  # rc è già un RouterCandidate con name = machine_name
+            
             vendor_config = rc.vendor_config
             if vendor_config and vendor_config.interfaces:
                 for iface_idx in SortedSet(vendor_config.iface_to_iface_idx.values()):
@@ -454,10 +448,10 @@ class Topology:
                         rc.machine_name,
                         f"{rc.machine_name}_{iface_idx}"
                     )
-                    router.connect_interface_to_cd(cd, iface_idx)
+                    rc.connect_interface_to_cd(cd, iface_idx)
 
-            candidate_routers[rc.router_name] = router
-            self._nodes[rc.machine_name] = router
+            candidate_routers[rc.router_name] = rc
+            self._nodes[rc.machine_name] = rc
 
         self._infer_bgp_relationships_multi_router(candidate_routers)
 
