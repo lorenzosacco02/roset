@@ -68,7 +68,7 @@ class RouteLeakAction(Action):
             logging.info(f"Chosen network to announce is {spoofing_net}.")
 
             for neighbor_as, neighbor_info in customers.items():
-                logging.warning(f"Processing customer AS{neighbor_as}, peerings: {neighbor_info.peerings}")
+                logging.info(f"Processing customer AS{neighbor_as}, peerings: {neighbor_info.peerings}")
                 customer_node = topology.get(neighbor_as)
                 customer_device = net_scenario.get_machine(customer_node.machine_name)
 
@@ -127,8 +127,8 @@ class RouteLeakAction(Action):
 
                     # Controlla se il candidato propaga la rete verso i provider
                     for _, provider in providers_routers:
-                        logging.warning(f"Checking provider AS{provider.identifier} for border router {border_router_machine_name}")
-                        logging.warning(f"provider_neighbor_info: {as_candidate.neighbors.get(provider.identifier)}")
+                        logging.info(f"Checking provider AS{provider.identifier} for border router {border_router_machine_name}")
+                        logging.debug(f"provider_neighbor_info: {as_candidate.neighbors.get(provider.identifier)}")
                         provider_node = topology.get(provider.identifier)
                         provider_device = net_scenario.get_machine(provider_node.machine_name)
 

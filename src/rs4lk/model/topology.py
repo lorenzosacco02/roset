@@ -118,19 +118,19 @@ class Node:
 
 
 class Client(Node):
-    def __init__(self, local_as: int) -> None:
+    def __init__(self, local_as: int, router_machine_name: str | None = None) -> None:
         super().__init__(local_as)
+        self._router_machine_name = router_machine_name
 
     @property
     def name(self) -> str:
+        if self._router_machine_name:
+            return f"{self._router_machine_name}_client"
         return f"as{self.identifier}_client"
 
     @property
     def machine_name(self) -> str:
         return self.name
-
-    def __repr__(self) -> str:
-        return f"Client {self.name} - neighbours={self.neighbours}"
 
 
 class BgpRouter(Node):
@@ -754,7 +754,8 @@ class Topology:
             provider_router.connect_to_neighbour(neighbour_client)
 
         for router in candidate_routers.values():
-            candidate_router_client = Client(self._as_candidate.local_as)
+            # Un client dedicato per ogni border router
+            candidate_router_client = Client(self._as_candidate.local_as, router.machine_name)
             empty_iface_idx = -1
             for iface_idx in reversed(router.neighbours):
                 if not router.neighbours[iface_idx]:

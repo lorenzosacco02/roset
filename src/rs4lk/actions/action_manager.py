@@ -35,7 +35,7 @@ class ActionManager:
         self, as_candidate: AsCandidate, topology: Topology, table_dump: TableDump, net_scenario: Lab,
     ) -> list[ActionResult]:
         self._check_configuration_validity(as_candidate, net_scenario)
-
+        # Kathara.get_instance().connect_tty(machine_name="as101_c2", lab = net_scenario)
         converged = self._wait_convergence(topology, net_scenario)
         if not converged:
             raise BgpRuntimeError("BGP did not converge")

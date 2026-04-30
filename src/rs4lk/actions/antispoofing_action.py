@@ -123,31 +123,24 @@ class AntiSpoofingAction(Action):
                 self._ip_addr_add(provider_client, 0, provider_client_ip)
                 self._ip_route_add(provider_client, default_net, provider_ip.ip, 0)
 
-                # Itera su tutti i router candidati che peerano con questo provider
-                for border_router_machine_name, peering_ips in neighbor_info.peerings.items():
-                    if v not in peering_ips:
-                        logging.warning(
-                            f"No IPv{v} peering between AS{neighbor_as} and {border_router_machine_name}, skipping..."
-                        )
-                        action_result.add_result(
-                            WARNING, f"No peering on IPv{v} between AS{neighbor_as} and {border_router_machine_name}."
-                        )
-                        continue
+                # Per ogni border router dell'AS, testa se lascia uscire pacchetti spoofati
+                for router in as_candidate.routers:
+                    border_router_machine_name = router.machine_name
 
-                    cand_peering_ip = peering_ips[v]
-
-                    # Reti annunciate dal candidato verso questo provider pre-calcolate
-                    candidate_nets = neighbor_info.announced_networks[border_router_machine_name][v]
+                    # Cerca una rete annunciata da qualsiasi peering di questo router
+                    # verso qualsiasi provider, per assegnare IP temporanei al client
+                    candidate_nets = set()
+                    for ni in as_candidate.neighbors.values():
+                        if border_router_machine_name in ni.announced_networks:
+                            candidate_nets.update(ni.announced_networks[border_router_machine_name][v])
                     candidate_nets = utils.aggregate_networks(candidate_nets)
 
                     if not candidate_nets:
                         logging.warning(
-                            f"No networks advertised by {border_router_machine_name} "
-                            f"to AS{neighbor_as} on IPv{v}, skipping..."
+                            f"No networks advertised by {border_router_machine_name} on IPv{v}, skipping..."
                         )
                         action_result.add_result(
-                            WARNING,
-                            f"No networks advertised by {border_router_machine_name} to AS{neighbor_as} on IPv{v}."
+                            WARNING, f"No networks advertised by {border_router_machine_name} on IPv{v}."
                         )
                         continue
 
@@ -169,12 +162,9 @@ class AntiSpoofingAction(Action):
 
                     logging.info(f"Selected network {candidate_net} on {border_router_machine_name}.")
 
-                    # Recupera il router candidato specifico e il suo client
-                    router = as_candidate.get_router_by_machine_name(border_router_machine_name)
                     candidate_device = net_scenario.get_machine(border_router_machine_name)
-
                     candidate_topo_node = topology.get(border_router_machine_name)
-                    candidate_client_name = f"as{as_candidate.local_as}_client"
+                    candidate_client_name = f"{border_router_machine_name}_client"
                     _, candidate_client_iface_idx = candidate_topo_node.get_node_by_name(candidate_client_name)
                     candidate_client = net_scenario.get_machine(candidate_client_name)
 
@@ -184,12 +174,9 @@ class AntiSpoofingAction(Action):
                     Kathara.get_instance().update_lab_from_api(net_scenario)
                     Kathara.get_instance().copy_files(candidate_client, {'/host_spoof_check.py': content})
 
-                    candidate_client_ip = self._get_non_overlapping_address(
-                        candidate_net, as_candidate.assigned_ips
-                    )
+                    candidate_client_ip = self._get_non_overlapping_address(candidate_net, as_candidate.assigned_ips)
                     candidate_ip = self._get_non_overlapping_address(
-                        candidate_net,
-                        as_candidate.assigned_ips.union({candidate_client_ip})
+                        candidate_net, as_candidate.assigned_ips.union({candidate_client_ip})
                     )
 
                     self._ip_addr_add(candidate_client, 0, candidate_client_ip)
