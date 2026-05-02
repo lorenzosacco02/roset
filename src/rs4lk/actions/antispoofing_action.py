@@ -134,6 +134,7 @@ class AntiSpoofingAction(Action):
                         if border_router_machine_name in ni.announced_networks:
                             candidate_nets.update(ni.announced_networks[border_router_machine_name][v])
                     candidate_nets = utils.aggregate_networks(candidate_nets)
+                    logging.debug(f"DEBUG {border_router_machine_name} candidate_nets disponibili: {candidate_nets}")
 
                     if not candidate_nets:
                         logging.warning(
@@ -166,6 +167,11 @@ class AntiSpoofingAction(Action):
                     candidate_topo_node = topology.get(border_router_machine_name)
                     candidate_client_name = f"{border_router_machine_name}_client"
                     _, candidate_client_iface_idx = candidate_topo_node.get_node_by_name(candidate_client_name)
+
+                    if candidate_client_iface_idx == -1:
+                        logging.warning(f"No client interface available for {border_router_machine_name}, skipping...")
+                        action_result.add_result(WARNING, f"No client available for {border_router_machine_name}, cannot perform anti-spoofing check.")
+                        continue
                     candidate_client = net_scenario.get_machine(candidate_client_name)
 
                     logging.info(f"Copying spoofing check script into candidate client `{candidate_client_name}`...")
@@ -196,10 +202,12 @@ class AntiSpoofingAction(Action):
                         candidate_client_ip.ip, spoofed_src_ip, provider_client_addr
                     )
                     if result:
+                        # Kathara.get_instance().connect_tty(machine_name=border_router_machine_name+"_client", lab = net_scenario)
                         msg = (f"Configuration correctly blocks a spoofed packet from network {spoofing_net} "
                             f"towards provider AS{neighbor_as} via {border_router_machine_name}. "
                             f"The packet transmitted was SrcIP={spoofed_src_ip} -> DstIP={provider_client_addr}.")
                     else:
+                        # Kathara.get_instance().connect_tty(machine_name=border_router_machine_name+"_client", lab = net_scenario)
                         msg = (f"Configuration allows to send a spoofed packet from network {spoofing_net} "
                             f"towards provider AS{neighbor_as} via {border_router_machine_name}. "
                             f"The packet transmitted was SrcIP={spoofed_src_ip} -> DstIP={provider_client_addr}.")
@@ -381,7 +389,7 @@ class AntiSpoofingAction(Action):
                 pass
 
         spoof_passed = result_spoof.decode('utf-8').strip() == "1"
-
+        logging.info(f"spoof test on candidate client passed={spoof_passed}")
         # Once exited, check what we captured on the sniffer
         result_sniff = None
         while result_sniff is None:
@@ -390,8 +398,8 @@ class AntiSpoofingAction(Action):
                 (result_sniff, _) = next(exec_output_sniffer)
             except StopIteration:
                 pass
-
         sniff_passed = result_sniff.decode('utf-8').strip() == "1"
+        logging.info(f"sniff test on provider client passed={sniff_passed}")
 
         return spoof_passed and sniff_passed
 

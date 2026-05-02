@@ -118,7 +118,7 @@ class AsCandidate:
                         f"peering_ip={cand_peering_ip}, networks={networks}"
                     )
 
-        logging.info(f"Neighbor map built: {self.neighbors}")
+        logging.debug(f"Neighbor map built: {self.neighbors}")
 
     def get_router_by_machine_name(self, machine_name: str) -> RouterCandidate | None:
         for router in self.routers:
