@@ -483,6 +483,7 @@ class Topology:
 
             for remote_as_num, session in vendor_config.sessions.items():
                 if remote_as_num == router.identifier:
+                    session.relationship = -1
                     continue
 
                 found = False
