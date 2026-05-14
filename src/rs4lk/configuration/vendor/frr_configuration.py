@@ -15,7 +15,7 @@ class FrrConfiguration(VendorConfiguration):
     PREFIX_REGEX: re.Pattern = re.compile(r"(\d+\.\d+\.\d+\.\d+/\d+)")
 
     def get_image(self) -> str:
-        return 'kathara/frr:9'
+        return self.docker_image or 'kathara/frr:9'
 
     def _remap_interfaces(self) -> None:
         idx = 0

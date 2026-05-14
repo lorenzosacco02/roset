@@ -61,7 +61,7 @@ class IosxrConfiguration(VendorConfiguration):
         logging.debug(f"Interface `{iface.original_name}` remapped into `{iface.name}`.")
 
     def get_image(self) -> str:
-        return 'ios-xr/xrd-control-plane:7.9.2'
+        return self.docker_image or 'ios-xr/xrd-control-plane:7.9.2'
 
     def apply_to_network_scenario(self, net_scenario: Lab, machine_name: str | None = None) -> None:
         candidate_name = machine_name or f"as{self.local_as}"

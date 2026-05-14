@@ -55,8 +55,11 @@ class AsCandidateParser:
         vendor = router_data['vendor']
         config_path = router_data['config_path']
         startup_script_path = router_data.get('startup_script_path')
+        docker_image = router_data.get('docker_image')
 
         vendor_config = self._grammar_parser.parse(config_path, vendor)
+        if docker_image:
+            vendor_config.docker_image = docker_image
 
         if vendor_config.local_as != expected_as:
             raise ConfigError(
@@ -70,7 +73,8 @@ class AsCandidateParser:
             config_path=config_path,
             local_as=vendor_config.local_as,
             vendor_config=vendor_config,
-            startup_script_path=startup_script_path
+            startup_script_path=startup_script_path,
+            docker_image=docker_image
         )
 
         return router

@@ -49,7 +49,7 @@ class JunosConfiguration(VendorConfiguration):
         logging.debug(f"Interface `{iface.original_name}` remapped into `{iface.name}`.")
 
     def get_image(self) -> str:
-        return 'vrnetlab/vr-vmx:18.2R1.9'
+        return self.docker_image or 'vrnetlab/vr-vmx:18.2R1.9'
 
     def apply_to_network_scenario(self, net_scenario: Lab, machine_name: str | None = None) -> None:
         candidate_name = machine_name or f"as{self.local_as}"

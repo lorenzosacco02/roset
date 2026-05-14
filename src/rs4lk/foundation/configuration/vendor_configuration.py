@@ -14,9 +14,7 @@ from ...utils import urlsafe_hash
 
 
 class VendorConfiguration(ConfigurationApplier, CommandsMixin, VendorFormatParser, ABC):
-    __slots__ = ['name', 'path', 'interfaces', 'local_as', 'sessions', '_lines', 'iface_to_iface_idx']
-
-    CONFIG_FILE_PATH: str = "/config/startup-config.cfg"
+    __slots__ = ['name', 'path', 'interfaces', 'local_as', 'sessions', '_lines', 'iface_to_iface_idx', 'docker_image']
 
     def __init__(self) -> None:
         self.name: str | None = None
@@ -24,6 +22,7 @@ class VendorConfiguration(ConfigurationApplier, CommandsMixin, VendorFormatParse
         self.interfaces: dict[str, Interface] | None = {}
         self.local_as: int = 0
         self.sessions: dict[int, BgpSession] | None = {}
+        self.docker_image: str | None = None
 
         self._lines: list[str] | None = None
         self.iface_to_iface_idx: SortedDict[str, int] = SortedDict({})
