@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from .as_candidate import AsCandidate
     from .bgp_session import BgpSession
 
-INTERNET_AS_NUM = 1
+INTERNET_AS_NUM = 1111
 
 
 class Node:
@@ -367,7 +367,7 @@ class Topology:
         internet_router.add_announced_network(ipaddress.IPv4Network("0.0.0.0/0"))
         internet_router.add_announced_network(ipaddress.IPv6Network("0::0/0"))
 
-        internet_router_client = Client(1)
+        internet_router_client = Client(INTERNET_AS_NUM)
         internet_router.connect_to_neighbour(internet_router_client)
         internet_router_client.connect_to_neighbour(internet_router)
 
@@ -707,7 +707,7 @@ class Topology:
         internet_router.add_announced_network(ipaddress.IPv4Network("0.0.0.0/0"))
         internet_router.add_announced_network(ipaddress.IPv6Network("0::0/0"))
 
-        internet_router_client = Client(1)
+        internet_router_client = Client(INTERNET_AS_NUM)
         internet_router.connect_to_neighbour(internet_router_client)
         internet_router_client.connect_to_neighbour(internet_router)
 
