@@ -140,7 +140,6 @@ class ActionManager:
 
             if not summary:
                 logging.info(f"Summary for device `{device_name}` is empty.")
-                print(f"Summary for device `{device_name}` is empty.")
                 converged_routers.append(False)
                 continue
 
