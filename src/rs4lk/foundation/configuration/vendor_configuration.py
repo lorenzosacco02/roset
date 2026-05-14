@@ -90,7 +90,7 @@ class VendorConfiguration(ConfigurationApplier, CommandsMixin, VendorFormatParse
         logging.debug(f"Resulting sessions: {self.sessions}")
 
     def _get_interface_for_peering(self, bgp_peering: BgpPeering) \
-            -> (Interface | None, ipaddress.IPv4Interface | ipaddress.IPv6Interface | None): # type: ignore
+            -> (Interface | None, ipaddress.IPv4Interface | ipaddress.IPv6Interface | None):
         selected_iface = None
         selected_iface_ip = None
         last_plen = -1

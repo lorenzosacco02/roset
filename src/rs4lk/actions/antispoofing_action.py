@@ -127,10 +127,10 @@ class AntiSpoofingAction(Action):
                 for router in as_candidate.routers:
                     border_router_machine_name = router.machine_name
 
-                    # Cerca una rete annunciata da qualsiasi peering di questo router
-                    # verso qualsiasi provider, per assegnare IP temporanei al client
                     candidate_nets = set()
                     for ni in as_candidate.neighbors.values():
+                        if ni.neighbor_type == 2:  # no customer
+                            continue
                         if border_router_machine_name in ni.announced_networks:
                             candidate_nets.update(ni.announced_networks[border_router_machine_name][v])
                     candidate_nets = utils.aggregate_networks(candidate_nets)
