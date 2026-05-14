@@ -21,7 +21,9 @@ class AsCandidateParser:
         self._validate_json_schema(data, full_path)
 
         local_as = data['local_as']
-        as_candidate = AsCandidate(local_as)
+        relationships_path = data.get('relationships')
+        rib_dump_path = data.get('rib_dump')
+        as_candidate = AsCandidate(local_as, relationships_path=relationships_path, rib_dump_path=rib_dump_path)
 
         for router_data in data['routers']:
             router = self._parse_router(router_data, local_as)

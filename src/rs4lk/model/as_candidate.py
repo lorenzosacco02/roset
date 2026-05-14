@@ -9,14 +9,16 @@ from ..actions import action_utils
 
 
 class AsCandidate:
-    __slots__ = ['local_as', 'routers', '_routers_by_name', 'neighbors', 'assigned_ips']
+    __slots__ = ['local_as', 'routers', '_routers_by_name', 'neighbors', 'assigned_ips', 'relationships_path', 'rib_dump_path']
 
-    def __init__(self, local_as: int) -> None:
+    def __init__(self, local_as: int, relationships_path: str | None = None, rib_dump_path: str | None = None) -> None:
         self.local_as: int = local_as
         self.routers: list[RouterCandidate] = []
         self._routers_by_name: dict[str, RouterCandidate] = {}
         self.neighbors: dict[int, NeighborInfo] = {}  # neighbor_as -> NeighborInfo
         self.assigned_ips: set = set()
+        self.relationships_path: str | None = relationships_path
+        self.rib_dump_path: str | None = rib_dump_path
 
     def add_router(self, router: RouterCandidate) -> None:
         if router.identifier != self.local_as:
