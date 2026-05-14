@@ -97,6 +97,18 @@ Currently, ROSE-T supports the following vendor routers:
 - **MikroTik RouterOS** (>=7.16) through a [hellt/vrnetlab](https://github.com/hellt/vrnetlab) VM embedded in a Docker container.
   - We use a custom version of the VM, which `.patch` files are located in the `vrnet_patches` folder.
   - **Note**: Currently, we only support  __non-terse__ configurations (i.e., do not `export` with the `terse` parameter).
+- **FRRouting (FRR)** (>=9.1) using the official [kathara/frr](https://github.com/KatharaFramework/kathara-docker) Docker image.
+  - FRR can be used as the candidate router configuration.
+  - The candidate router runs the original FRR configuration, while other ASes are emulated using FRR.
+  - **Note**: The configuration must be in standard FRR format (like the output of show running-config in vtysh).
+  Custom iptables configuration for FRR candidate
+
+  When using FRR as the candidate router, you can provide custom iptables rules to be applied after the router starts. This is useful for testing anti-spoofing configurations.
+
+  Create a file (default path: `resources/iptables_config.txt`) with your iptables commands:
+
+  The script will be executed after FRR daemons are started. You can change the default path by modifying the `IPTABLES_CONFIG_PATH` constant in `src/rs4lk/configuration/vendor/frr_configuration.py`.
+
 
 We plan to extend the support to additional vendors in the future.
 
@@ -153,31 +165,14 @@ The supported parameters are:
 - `--config_path`: Path to the configuration to test.
 - `--config_syntax`: The syntax of the provided configuration. Supported values are `Junos` (for VMX), `IosXr` (for Cisco IOS XR), `Routeros` (for MikroTik RouterOS).
 - `--rib_dump`: Path pointing to the `.db` SQLite3 database containing the parsed MRT RIB dump. By default, the value is `resources/rib_latest.db`.
-- `--exclude_checks`: A comma separated string to exclude some MANRS checks. Supported values are `spoofing` and `leak`.
+- `--exclude_checks`: A comma separated string to exclude some MANRS checks. Supported values are `information`, `spoofing`, and `leak`.
 - `--result-level`: The output of the validation will report both successful checks, warnings and errors. You can change the level of output with this parameters. Supported values are `WARNING`, `SUCCESS`, and `ERROR`.
 
 The test can take up to few minutes, depending on your hardware. Ensure that you have a good amount of RAM and nested virtualization enabled.
 
 **NOTE**: ROSE-T works only on Docker on Linux or WSL2, and it is compatible only with the `amd64` architecture (Apple Silicon is not supported).
 
-### Action 4 verification
-Currently, the Action 4 verification is a standalone Prolog program. We plan to merge the two tools in the near future.
-
-To verify Action 4, enter the `src_prolog` directory and follow the related [README](src_prolog/README.md) file.
-
 ## Customizations 
-
-### Build the ANTLR4 grammar
-
-ANTLR4 grammars are already compiled and embedded into ROSE-T. 
-We provide the `.g4` of the grammars in the `grammars` folder if you wish to update or improve it. 
-
-To re-compile the new grammar and move the compiled Python result into ROSE-T, you can use the `Makefile` located in the `grammars` folder:
-```bash
-make grammar_<os_name>
-```
-
-Where `<os_name>` corresponds to the name of the associated grammar file without extension: `IosXr`, `Junos`, or `Routeros`.
 
 ### Change the vendor router Docker image name
 
@@ -185,3 +180,25 @@ Where `<os_name>` corresponds to the name of the associated grammar file without
 We plan to add a configuration parameter to specify the image name.
 If your image name differs, you have to manually change it into the corresponding `src/rs4lk/configuration/vendor/<os_name>_configuration.py` file, by modifying the `get_image` method of the class.
 
+### Using a local relationships file instead of RIPE DB
+
+For testing or lab environments where RIPE DB relationships are not available, you can provide a local relationships file:
+
+```
+cd src
+sudo -E PATH=$PATH python3 test.py --config_path <CONFIGURATION_PATH> --config_syntax Frr --relationships ../resources/test_relationships.json
+```
+
+The relationships file must be in JSON format:
+```json
+{
+  "AS101": {
+    "AS100": "peer",
+    "AS102": "peer",
+    "AS103": "customer",
+    "AS104": "provider"
+  }
+}
+```
+
+Valid relationship values are: `provider`, `customer`, `peer`.
