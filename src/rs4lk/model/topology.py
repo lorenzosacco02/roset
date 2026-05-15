@@ -754,19 +754,50 @@ class Topology:
             neighbour_client.connect_to_neighbour(provider_router)
             provider_router.connect_to_neighbour(neighbour_client)
 
-        for router in candidate_routers.values():
-            # Un client dedicato per ogni border router
+        for rc in self._as_candidate.routers:
+            router = candidate_routers[rc.router_name]
             candidate_router_client = Client(self._as_candidate.local_as, router.machine_name)
-            empty_iface_idx = -1
-            for iface_idx in reversed(router.neighbours):
-                if not router.neighbours[iface_idx]:
-                    empty_iface_idx = iface_idx
-                    break
 
-            if empty_iface_idx != -1:
-                cd = router.get_cd_by_iface_idx(empty_iface_idx)
-                router.connect_to_neighbour(candidate_router_client, empty_iface_idx)
+            # Interfacce già usate per peering eBGP
+            used_iface_idxs = set()
+            if rc.vendor_config:
+                for remote_as, session in rc.vendor_config.sessions.items():
+                    if remote_as != self._as_candidate.local_as and session.iface_idx is not None:
+                        used_iface_idxs.add(session.iface_idx)
+
+            # Cerca interfaccia con rete pubblica non usata per peering
+            public_iface_candidates = []
+            if rc.vendor_config:
+                for iface_name, iface in rc.vendor_config.interfaces.items():
+                    iface_real_name = iface.phy.name if hasattr(iface, 'phy') else iface.name
+                    if iface_real_name not in rc.vendor_config.iface_to_iface_idx:
+                        continue
+                    iface_idx = rc.vendor_config.iface_to_iface_idx[iface_real_name]
+                    if iface_idx in used_iface_idxs:
+                        continue
+                    for addr in iface.addresses:
+                        if not addr.network.is_private and not addr.network.is_loopback:
+                            if iface_idx in router.neighbours:
+                                public_iface_candidates.append(iface_idx)
+                            break
+
+            # Scelta random tra le interfacce pubbliche
+            client_iface_idx = -1
+            if public_iface_candidates:
+                client_iface_idx = random.choice(public_iface_candidates)
+            else:
+                logging.warning(f"No public network found on {router.machine_name}, using first empty interface.")
+                for iface_idx in router.neighbours:
+                    if not router.neighbours[iface_idx]:
+                        client_iface_idx = iface_idx
+                        break
+
+            if client_iface_idx != -1:
+                cd = router.get_cd_by_iface_idx(client_iface_idx)
+                router.connect_to_neighbour(candidate_router_client, client_iface_idx)
                 candidate_router_client.connect_to_neighbour_by_cd(router, cd)
+            else:
+                logging.warning(f"No interface available for client on {router.machine_name}, skipping.")
 
     def _infer_bgp_relationships(self) -> None:
         logging.info("Inferring BGP relationships...")

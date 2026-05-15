@@ -29,11 +29,10 @@ class AntiSpoofingAction(Action):
     ) -> ActionResult:
         action_result = ActionResult(self)
 
-        # Raccogli tutti i provider dai NeighborInfo pre-calcolati
         providers = {
             neighbor_as: neighbor_info
             for neighbor_as, neighbor_info in as_candidate.neighbors.items()
-            if neighbor_info.neighbor_type == 1  # provider
+            if neighbor_info.neighbor_type == 1
         }
 
         if not providers:
@@ -41,7 +40,6 @@ class AntiSpoofingAction(Action):
             action_result.add_result(WARNING, "No providers found.")
             return action_result
 
-        # Raccogli tutte le reti annunciate dai provider per calcolare la rete da spoofing
         all_announced_networks = {4: set(), 6: set()}
         providers_routers = list(filter(lambda x: x[1].is_provider() and not x[1].is_candidate(), topology.all()))
         for _, provider in providers_routers:
@@ -123,25 +121,55 @@ class AntiSpoofingAction(Action):
                 self._ip_addr_add(provider_client, 0, provider_client_ip)
                 self._ip_route_add(provider_client, default_net, provider_ip.ip, 0)
 
-                # Per ogni border router dell'AS, testa se lascia uscire pacchetti spoofati
                 for router in as_candidate.routers:
                     border_router_machine_name = router.machine_name
 
-                    candidate_nets = set()
+                    # Prima recupera il client e il suo iface_idx
+                    candidate_topo_node = topology.get(border_router_machine_name)
+                    candidate_client_name = f"{border_router_machine_name}_client"
+                    _, candidate_client_iface_idx = candidate_topo_node.get_node_by_name(candidate_client_name)
+
+                    if candidate_client_iface_idx == -1:
+                        logging.warning(f"No client interface available for {border_router_machine_name}, skipping...")
+                        action_result.add_result(
+                            WARNING,
+                            f"No client available for {border_router_machine_name}, cannot perform anti-spoofing check."
+                        )
+                        continue
+
+                    candidate_client = net_scenario.get_machine(candidate_client_name)
+
+                    # Restringe candidate_nets alle reti sull'interfaccia del client
+                    client_iface_nets = set()
+                    if router.vendor_config:
+                        for iface_name, iface in router.vendor_config.interfaces.items():
+                            iface_real_name = iface.phy.name if hasattr(iface, 'phy') else iface.name
+                            if router.vendor_config.iface_to_iface_idx.get(iface_real_name) == candidate_client_iface_idx:
+                                for addr in iface.addresses:
+                                    if addr.version == v:
+                                        client_iface_nets.add(addr.network)
+
+                    # Tutte le reti annunciate dall'AS verso provider (da qualsiasi border router)
+                    all_candidate_nets_to_providers = set()
                     for ni in as_candidate.neighbors.values():
-                        if ni.neighbor_type == 2:  # no customer
+                        if ni.neighbor_type != 1:
                             continue
-                        if border_router_machine_name in ni.announced_networks:
-                            candidate_nets.update(ni.announced_networks[border_router_machine_name][v])
-                    candidate_nets = utils.aggregate_networks(candidate_nets)
-                    logging.debug(f"DEBUG {border_router_machine_name} candidate_nets disponibili: {candidate_nets}")
+                        for br_nets in ni.announced_networks.values():
+                            all_candidate_nets_to_providers.update(br_nets[v])
+                    all_candidate_nets_to_providers = utils.aggregate_networks(all_candidate_nets_to_providers)
+
+                    # Filtra alle reti presenti sull'interfaccia del client di questo router
+                    candidate_nets = {
+                        net for net in all_candidate_nets_to_providers
+                        if any(net.overlaps(n) for n in client_iface_nets)
+                    }
 
                     if not candidate_nets:
                         logging.warning(
-                            f"No networks advertised by {border_router_machine_name} on IPv{v}, skipping..."
+                            f"No viable networks on client interface for {border_router_machine_name}, skipping..."
                         )
                         action_result.add_result(
-                            WARNING, f"No networks advertised by {border_router_machine_name} on IPv{v}."
+                            WARNING, f"No viable networks for {border_router_machine_name} on IPv{v}."
                         )
                         continue
 
@@ -164,15 +192,6 @@ class AntiSpoofingAction(Action):
                     logging.info(f"Selected network {candidate_net} on {border_router_machine_name}.")
 
                     candidate_device = net_scenario.get_machine(border_router_machine_name)
-                    candidate_topo_node = topology.get(border_router_machine_name)
-                    candidate_client_name = f"{border_router_machine_name}_client"
-                    _, candidate_client_iface_idx = candidate_topo_node.get_node_by_name(candidate_client_name)
-
-                    if candidate_client_iface_idx == -1:
-                        logging.warning(f"No client interface available for {border_router_machine_name}, skipping...")
-                        action_result.add_result(WARNING, f"No client available for {border_router_machine_name}, cannot perform anti-spoofing check.")
-                        continue
-                    candidate_client = net_scenario.get_machine(candidate_client_name)
 
                     logging.info(f"Copying spoofing check script into candidate client `{candidate_client_name}`...")
                     with open(os.path.join(RESOURCES_FOLDER, "host_spoof_check.py"), "rb") as py_script:
@@ -202,12 +221,10 @@ class AntiSpoofingAction(Action):
                         candidate_client_ip.ip, spoofed_src_ip, provider_client_addr
                     )
                     if result:
-                        # Kathara.get_instance().connect_tty(machine_name=border_router_machine_name+"_client", lab = net_scenario)
                         msg = (f"Configuration correctly blocks a spoofed packet from network {spoofing_net} "
                             f"towards provider AS{neighbor_as} via {border_router_machine_name}. "
                             f"The packet transmitted was SrcIP={spoofed_src_ip} -> DstIP={provider_client_addr}.")
                     else:
-                        # Kathara.get_instance().connect_tty(machine_name=border_router_machine_name+"_client", lab = net_scenario)
                         msg = (f"Configuration allows to send a spoofed packet from network {spoofing_net} "
                             f"towards provider AS{neighbor_as} via {border_router_machine_name}. "
                             f"The packet transmitted was SrcIP={spoofed_src_ip} -> DstIP={provider_client_addr}.")
