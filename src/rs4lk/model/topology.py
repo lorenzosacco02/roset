@@ -535,40 +535,47 @@ class Topology:
 
     def _add_external_neighbors(self, candidate_routers: dict, external_sessions: list[tuple[str, str, BgpSession]]) -> None:
         processed_external_as: dict[int, BgpRouter] = {}
-        processed_connections: set[tuple[str, int]] = set()
+        processed_connections: set[tuple[str, int, int]] = set()
 
         for router_name, as_num, session in external_sessions:
             if not session.iface:
                 continue
 
-            connection_key = (router_name, as_num)
-            if connection_key in processed_connections:
-                continue
-
-            processed_connections.add(connection_key)
-
-            if as_num not in processed_external_as:
-                neighbour_router = BgpRouter(as_num, session.relationship)
-                self._nodes[as_num] = neighbour_router
-                processed_external_as[as_num] = neighbour_router
-            else:
-                neighbour_router = processed_external_as[as_num]
-                if session.relationship is not None and neighbour_router.relationship is None:
-                    neighbour_router.relationship = session.relationship
-
-            router = candidate_routers[router_name]
-
-            cd = router.get_cd_by_iface_idx(session.iface_idx)
-            router.connect_to_neighbour(neighbour_router, session.iface_idx)
-            neighbour_router.connect_to_neighbour(router, cd=cd)
-
             for peering in session.peerings:
                 if peering.local_ip is None:
                     continue
 
+                connection_key = (router_name, as_num, peering.iface_idx)
+                if connection_key in processed_connections:
+                    continue
+                processed_connections.add(connection_key)
+
+                if as_num not in processed_external_as:
+                    neighbour_router = BgpRouter(as_num, session.relationship)
+                    self._nodes[as_num] = neighbour_router
+                    processed_external_as[as_num] = neighbour_router
+                else:
+                    neighbour_router = processed_external_as[as_num]
+                    if session.relationship is not None and neighbour_router.relationship is None:
+                        neighbour_router.relationship = session.relationship
+
+                router = candidate_routers[router_name]
+
+                cd = router.get_cd_by_iface_idx(peering.iface_idx)
+                router.connect_to_neighbour(neighbour_router, peering.iface_idx)
+                # Crea sempre una nuova interfaccia su AS20 per questo CD
+                neighbour_iface_idx = neighbour_router.connect_interface_to_cd(cd)
+                if neighbour_iface_idx is None:
+                    # CD già presente, trova l'iface_idx esistente
+                    for iface_idx, iface_cd in neighbour_router._iface_idx_to_cd.items():
+                        if iface_cd == cd:
+                            neighbour_iface_idx = iface_idx
+                            break
+                neighbour_router.connect_to_neighbour(router, neighbour_iface_idx, cd=cd)
+
                 r_iface_ip = ipaddress.ip_interface(f"{peering.remote_ip}/{peering.local_ip.network.prefixlen}")
                 neighbour_router.add_local_iface_ip(
-                    0, router, r_iface_ip, vlan=session.vlan, is_public=True
+                    neighbour_iface_idx, router, r_iface_ip, vlan=session.vlan, is_public=True
                 )
                 router.add_local_iface_ip(
                     peering.iface_idx, neighbour_router, peering.local_ip, vlan=session.vlan, is_public=True
@@ -765,7 +772,16 @@ class Topology:
                     if remote_as != self._as_candidate.local_as and session.iface_idx is not None:
                         used_iface_idxs.add(session.iface_idx)
 
-            # Cerca interfaccia con rete pubblica non usata per peering
+            # Reti annunciate verso provider da questo router
+            provider_announced_nets = set()
+            if rc.vendor_config:
+                for remote_as, session in rc.vendor_config.sessions.items():
+                    if session.relationship == 1:  # solo provider
+                        for peering in session.peerings:
+                            if peering.local_ip:
+                                provider_announced_nets.add(peering.local_ip.network)
+
+            # Cerca interfaccia con rete annunciata verso provider, non usata per peering eBGP
             public_iface_candidates = []
             if rc.vendor_config:
                 for iface_name, iface in rc.vendor_config.interfaces.items():
@@ -776,7 +792,9 @@ class Topology:
                     if iface_idx in used_iface_idxs:
                         continue
                     for addr in iface.addresses:
-                        if not addr.network.is_private and not addr.network.is_loopback:
+                        # Controlla se la rete è annunciata verso provider
+                        # oppure se è una rete pubblica non di peering
+                        if any(addr.network.overlaps(n) for n in provider_announced_nets):
                             if iface_idx in router.neighbours:
                                 public_iface_candidates.append(iface_idx)
                             break
