@@ -94,7 +94,11 @@ class AntiSpoofingAction(Action):
                     continue
 
                 provider_net = None
-                provider_local_nets = list(provider.local_networks[v])
+                provider_local_nets = list(filter(
+                    lambda x: x.prefixlen != 0, 
+                    provider.local_networks[v]
+                ))
+
                 while len(provider_local_nets) > 0:
                     rand_idx = random.randint(0, len(provider_local_nets) - 1)
                     provider_net_rand = provider_local_nets.pop(rand_idx)
