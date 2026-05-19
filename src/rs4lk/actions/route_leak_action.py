@@ -116,14 +116,32 @@ class RouteLeakAction(Action):
                         self._no_vtysh_network(customer_device, neighbor_as, spoofing_net)
                         continue
 
-                    while True:
+                    max_attempts = 15
+                    attempt = 0
+                    network_received = False
+                    while attempt < max_attempts:
                         time.sleep(2)
                         customer_cand_nets = self._vendor_get_neighbour_bgp_networks(
                             candidate_device, router.vendor_config, customer_peering_ip.ip
                         )
                         if spoofing_net in customer_cand_nets:
                             logging.info(f"Network {spoofing_net} received by {border_router_machine_name}.")
+                            network_received = True
                             break
+                        attempt += 1
+
+                    if not network_received:
+                        logging.warning(
+                            f"Network {spoofing_net} never received by {border_router_machine_name} "
+                            f"from customer AS{neighbor_as}, skipping..."
+                        )
+                        action_result.add_result(
+                            WARNING,
+                            f"Network {spoofing_net} never received by {border_router_machine_name} "
+                            f"from customer AS{neighbor_as}."
+                        )
+                        self._no_vtysh_network(customer_device, neighbor_as, spoofing_net)
+                        continue
 
                     # Controlla se il candidato propaga la rete verso i provider
                     for _, provider in providers_routers:
