@@ -772,16 +772,7 @@ class Topology:
                     if remote_as != self._as_candidate.local_as and session.iface_idx is not None:
                         used_iface_idxs.add(session.iface_idx)
 
-            # Reti annunciate verso provider da questo router
-            provider_announced_nets = set()
-            if rc.vendor_config:
-                for remote_as, session in rc.vendor_config.sessions.items():
-                    if session.relationship == 1:  # solo provider
-                        for peering in session.peerings:
-                            if peering.local_ip:
-                                provider_announced_nets.add(peering.local_ip.network)
-
-            # Cerca interfaccia con rete annunciata verso provider, non usata per peering eBGP
+            # Cerca interfaccia con rete pubblica non usata per peering eBGP
             public_iface_candidates = []
             if rc.vendor_config:
                 for iface_name, iface in rc.vendor_config.interfaces.items():
@@ -792,9 +783,7 @@ class Topology:
                     if iface_idx in used_iface_idxs:
                         continue
                     for addr in iface.addresses:
-                        # Controlla se la rete è annunciata verso provider
-                        # oppure se è una rete pubblica non di peering
-                        if any(addr.network.overlaps(n) for n in provider_announced_nets):
+                        if not addr.network.is_private and not addr.network.is_loopback:
                             if iface_idx in router.neighbours:
                                 public_iface_candidates.append(iface_idx)
                             break

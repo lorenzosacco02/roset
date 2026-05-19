@@ -127,7 +127,7 @@ class ActionManager:
             converged_routers_count = sum([1 for x in converged_routers if x])
             logging.info(f"[ATTEMPT {attempts}] {converged_routers_count}/{len(converged_routers)} routers converged!")
 
-        logging.info("Routers converged!")
+        logging.success("Routers converged!")
 
         return True
 
