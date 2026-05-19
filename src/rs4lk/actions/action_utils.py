@@ -85,7 +85,7 @@ def get_neighbour_bgp_networks(device: Machine,
 
     return {
         ipaddress.ip_network(net) for net, routes in bgp_nets['routes'].items()
-        if routes and any([x['valid'] and x['bestpath'] for x in routes])
+        if routes and any([x['valid'] and x.get('bestpath', False) for x in routes])
     }
 
 
