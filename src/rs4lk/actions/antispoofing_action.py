@@ -220,19 +220,25 @@ class AntiSpoofingAction(Action):
 
                     logging.info("Waiting 20s before performing check...")
                     time.sleep(20)
-                    result = self._perform_spoofing_check(
+                    spoof_passed, sniff_passed = self._perform_spoofing_check(
                         candidate_client, internet_router_client,
                         candidate_client_ip.ip, spoofed_src_ip, provider_client_addr
                     )
-                    if result:
+                    if spoof_passed and sniff_passed:
                         msg = (f"Configuration correctly blocks a spoofed packet from network {spoofing_net} "
                             f"towards provider AS{neighbor_as} via {border_router_machine_name}. "
                             f"The packet transmitted was SrcIP={spoofed_src_ip} -> DstIP={provider_client_addr}.")
                     else:
-                        msg = (f"Configuration allows to send a spoofed packet from network {spoofing_net} "
-                            f"towards provider AS{neighbor_as} via {border_router_machine_name}. "
-                            f"The packet transmitted was SrcIP={spoofed_src_ip} -> DstIP={provider_client_addr}.")
-                    action_result.add_result(SUCCESS if result else ERROR, msg)
+                        if not sniff_passed:
+                            msg = (f"Configuration allows to send a spoofed packet from network {spoofing_net} "
+                                f"towards provider AS{neighbor_as} via {border_router_machine_name}. "
+                                f"The packet transmitted was SrcIP={spoofed_src_ip} -> DstIP={provider_client_addr}.")
+                        else:
+                            msg = (f"The legitimate packet from {border_router_machine_name} did not reach "
+                                f"provider AS{neighbor_as}. This suggests that the candidate configuration "
+                                f"may be blocking legitimate traffic"
+                                f"SrcIP={candidate_client_ip.ip} -> DstIP={provider_client_addr}.")
+                    action_result.add_result(SUCCESS if (spoof_passed and sniff_passed) else ERROR, msg)
 
                     self._vendor_ip_del(candidate_device, router.vendor_config, candidate_client_iface_idx, candidate_ip)
                     self._ip_addr_del(candidate_client, 0, candidate_client_ip)
@@ -383,7 +389,7 @@ class AntiSpoofingAction(Action):
     def _perform_spoofing_check(send_device: Machine, rcv_device: Machine,
                                 candidate_ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
                                 spoof_ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
-                                dst_ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+                                dst_ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> tuple[bool, bool]:
         logging.info(f"Performing spoof check with IPs=(src={candidate_ip}, spoof={spoof_ip}, dst={dst_ip})...")
 
         v = candidate_ip.version
@@ -422,7 +428,7 @@ class AntiSpoofingAction(Action):
         sniff_passed = result_sniff.decode('utf-8').strip() == "1"
         logging.info(f"sniff test on provider client passed={sniff_passed}")
 
-        return spoof_passed and sniff_passed
+        return (spoof_passed, sniff_passed)
 
     def name(self) -> str:
         return "spoofing"
