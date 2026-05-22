@@ -772,7 +772,7 @@ class Topology:
                     if remote_as != self._as_candidate.local_as and session.iface_idx is not None:
                         used_iface_idxs.add(session.iface_idx)
 
-            # Cerca interfaccia con rete pubblica non usata per peering eBGP
+            # Cerca interfaccia con rete pubblica e non usata per peering eBGP
             public_iface_candidates = []
             if rc.vendor_config:
                 for iface_name, iface in rc.vendor_config.interfaces.items():
@@ -787,6 +787,8 @@ class Topology:
                             if iface_idx in router.neighbours:
                                 public_iface_candidates.append(iface_idx)
                             break
+
+            logging.info(f"Router {router.machine_name} - public_iface_candidates: {public_iface_candidates}")
 
             # Scelta random tra le interfacce pubbliche
             client_iface_idx = -1
@@ -803,6 +805,7 @@ class Topology:
                 cd = router.get_cd_by_iface_idx(client_iface_idx)
                 router.connect_to_neighbour(candidate_router_client, client_iface_idx)
                 candidate_router_client.connect_to_neighbour_by_cd(router, cd)
+                logging.info(f"Connected client to {router.machine_name} on iface {client_iface_idx} (CD: {cd}).")
             else:
                 logging.warning(f"No interface available for client on {router.machine_name}, skipping.")
 

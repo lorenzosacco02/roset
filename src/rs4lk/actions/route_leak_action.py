@@ -172,19 +172,19 @@ class RouteLeakAction(Action):
                             continue
 
                         for provider_border_router, provider_ips in provider_peerings.items():
-                            cand_peering_ip = provider_ips[v]
-                            candidate_nets = action_utils.get_neighbour_bgp_networks(provider_device, cand_peering_ip.ip)
-                            result = spoofing_net not in candidate_nets
+                            for cand_peering_ip in provider_ips[v]:
+                                candidate_nets = action_utils.get_neighbour_bgp_networks(provider_device, cand_peering_ip.ip)
+                                result = spoofing_net not in candidate_nets
 
-                            if result:
-                                msg = (f"Configuration correctly blocks announcements of the spoofed network "
-                                    f"{spoofing_net} of customer AS{neighbor_as} towards provider "
-                                    f"AS{provider.identifier} via {provider_border_router}.")
-                            else:
-                                msg = (f"Configuration allows to announce the spoofed network {spoofing_net} of "
-                                    f"customer AS{neighbor_as} towards provider AS{provider.identifier} "
-                                    f"via {provider_border_router}.")
-                            action_result.add_result(SUCCESS if result else ERROR, msg)
+                                if result:
+                                    msg = (f"Configuration correctly blocks announcements of the spoofed network "
+                                        f"{spoofing_net} of customer AS{neighbor_as} towards provider "
+                                        f"AS{provider.identifier} via {provider_border_router}.")
+                                else:
+                                    msg = (f"Configuration allows to announce the spoofed network {spoofing_net} of "
+                                        f"customer AS{neighbor_as} towards provider AS{provider.identifier} "
+                                        f"via {provider_border_router}.")
+                                action_result.add_result(SUCCESS if result else ERROR, msg)
 
                     self._no_vtysh_network(customer_device, neighbor_as, spoofing_net)
 

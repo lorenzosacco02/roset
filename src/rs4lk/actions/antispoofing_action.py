@@ -128,7 +128,7 @@ class AntiSpoofingAction(Action):
                 for router in as_candidate.routers:
                     border_router_machine_name = router.machine_name
 
-                    # Prima recupera il client e il suo iface_idx
+                    # Recupera il client e il suo iface_idx
                     candidate_topo_node = topology.get(border_router_machine_name)
                     candidate_client_name = f"{border_router_machine_name}_client"
                     _, candidate_client_iface_idx = candidate_topo_node.get_node_by_name(candidate_client_name)
@@ -152,6 +152,7 @@ class AntiSpoofingAction(Action):
                                 for addr in iface.addresses:
                                     if addr.version == v:
                                         client_iface_nets.add(addr.network)
+                    logging.info(f"Client interface {candidate_client_iface_idx} on {border_router_machine_name} has networks: {client_iface_nets}")
 
                     # Tutte le reti annunciate dall'AS verso provider (da qualsiasi border router)
                     all_candidate_nets_to_providers = set()
@@ -161,6 +162,7 @@ class AntiSpoofingAction(Action):
                         for br_nets in ni.announced_networks.values():
                             all_candidate_nets_to_providers.update(br_nets[v])
                     all_candidate_nets_to_providers = utils.aggregate_networks(all_candidate_nets_to_providers)
+                    logging.info(f"Announced networks for {as_candidate.local_as}: {all_candidate_nets_to_providers}")
 
                     # Filtra alle reti presenti sull'interfaccia del client di questo router
                     candidate_nets = {
@@ -182,11 +184,18 @@ class AntiSpoofingAction(Action):
                     while len(candidate_local_nets) > 0:
                         rand_idx = random.randint(0, len(candidate_local_nets) - 1)
                         candidate_net_rand = candidate_local_nets.pop(rand_idx)
-                        if (2 ** (addr_len - candidate_net_rand.prefixlen)) - 2 > 5:
+                        # Trova la rete effettiva sull'interfaccia
+                        iface_net = next(
+                            (n for n in client_iface_nets if candidate_net_rand.overlaps(n)),
+                            None
+                        )
+                        if iface_net is None:
+                            continue
+                        if (2 ** (addr_len - iface_net.prefixlen)) - 2 > 2:
                             candidate_net = candidate_net_rand
                             break
                         else:
-                            logging.warning(f"Selected network {candidate_net_rand} has less than 5 IP addresses.")
+                            logging.warning(f"Interface network {iface_net} for {candidate_net_rand} has less than 3 IP addresses.")
 
                     if candidate_net is None:
                         logging.warning(f"No viable IPv{v} networks on {border_router_machine_name}, skipping...")
@@ -203,9 +212,11 @@ class AntiSpoofingAction(Action):
                     Kathara.get_instance().update_lab_from_api(net_scenario)
                     Kathara.get_instance().copy_files(candidate_client, {'/host_spoof_check.py': content})
 
-                    candidate_client_ip = self._get_non_overlapping_address(candidate_net, as_candidate.assigned_ips)
+                    # Usa la rete effettivamente presente sull'interfaccia, non quella annunciata
+                    iface_net = next(n for n in client_iface_nets if candidate_net.overlaps(n))
+                    candidate_client_ip = self._get_non_overlapping_address(iface_net, as_candidate.assigned_ips)
                     candidate_ip = self._get_non_overlapping_address(
-                        candidate_net, as_candidate.assigned_ips.union({candidate_client_ip})
+                        iface_net, as_candidate.assigned_ips.union({candidate_client_ip})
                     )
 
                     self._ip_addr_add(candidate_client, 0, candidate_client_ip)
@@ -417,6 +428,7 @@ class AntiSpoofingAction(Action):
 
         spoof_passed = result_spoof.decode('utf-8').strip() == "1"
         logging.info(f"spoof test on candidate client passed={spoof_passed}")
+        Kathara.get_instance().connect_tty(machine_name=send_device.name, lab_name=send_device.lab.name)
         # Once exited, check what we captured on the sniffer
         result_sniff = None
         while result_sniff is None:

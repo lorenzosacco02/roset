@@ -77,43 +77,18 @@ class AsCandidate:
                 neighbor_info = self.neighbors[remote_as]
                 neighbor_info.add_peering(router.machine_name)
 
-                # Trova gli IP del candidato verso questo neighbor
-                # (letti dal lato del neighbor, sono gli IP remoti che il neighbor vede)
-                neighbor_bgp_node = neighbor_node
-                candidate_neigh, _ = neighbor_bgp_node.get_neighbour_by_name(router.machine_name)
-                if not candidate_neigh:
-                    logging.warning(
-                        f"Cannot find neighbour {router.machine_name} on AS{remote_as}, skipping..."
-                    )
-                    continue
-
-                for v in [4, 6]:
-                    candidate_neigh_ips = candidate_neigh.get_neighbours_ips(is_public=True)
-                    if not candidate_neigh_ips[v]:
-                        logging.warning(
-                            f"No IPv{v} peering IPs between AS{remote_as} and {router.machine_name}, skipping..."
-                        )
+                # Itera su ogni peering della sessione
+                for peering in session.peerings:
+                    if peering.local_ip is None:
                         continue
 
-                    # Trova l'IP di peering attivo
-                    cand_peering_ip = action_utils.get_active_neighbour_peering_ip(
-                        neighbor_device,
-                        router.vendor_config,
-                        list(candidate_neigh_ips[v]),
-                        vendor=False
-                    )
+                    v = peering.local_ip.version
 
-                    if not cand_peering_ip:
-                        logging.warning(
-                            f"No active IPv{v} peering between AS{remote_as} and {router.machine_name}, skipping..."
-                        )
-                        continue
-
-                    neighbor_info.set_peering_ip(router.machine_name, v, cand_peering_ip)
-
-                    # Recupera le reti annunciate dal candidato verso questo neighbor
+                    cand_peering_ip = peering.local_ip
+                    
                     networks = action_utils.get_neighbour_bgp_networks(neighbor_device, cand_peering_ip.ip)
-                    neighbor_info.set_announced_networks(router.machine_name, v, networks)
+                    neighbor_info.add_peering_ip(router.machine_name, v, cand_peering_ip)
+                    neighbor_info.add_announced_networks(router.machine_name, v, networks)
 
                     logging.info(
                         f"AS{remote_as} <-> {router.machine_name} IPv{v}: "
