@@ -807,7 +807,9 @@ class Topology:
                 candidate_router_client.connect_to_neighbour_by_cd(router, cd)
                 logging.info(f"Connected client to {router.machine_name} on iface {client_iface_idx} (CD: {cd}).")
             else:
-                logging.warning(f"No interface available for client on {router.machine_name}, skipping.")
+                logging.warning(f"No interface available for client on {router.machine_name}, Creating new one.")
+                if self._as_candidate:
+                    self._as_candidate.routers_needing_client.add(router.machine_name)
 
     def _infer_bgp_relationships(self) -> None:
         logging.info("Inferring BGP relationships...")

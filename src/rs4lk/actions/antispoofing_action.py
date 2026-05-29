@@ -55,6 +55,50 @@ class AntiSpoofingAction(Action):
         utils.aggregate_v4_6_networks(all_announced_networks)
         logging.debug(f"Resulting networks are: {all_announced_networks}")
 
+        # Compute all candidate announced networks for both IP versions (used by all routers)
+        all_candidate_nets_to_providers = {4: set(), 6: set()}
+        for ni in as_candidate.neighbors.values():
+            if ni.neighbor_type != 1:
+                continue
+            for br_nets in ni.announced_networks.values():
+                all_candidate_nets_to_providers[4].update(br_nets[4])
+                all_candidate_nets_to_providers[6].update(br_nets[6])
+        utils.aggregate_v4_6_networks(all_candidate_nets_to_providers)
+
+        # Set up dynamic client containers for routers that lack a client interface
+        dynamic_clients: dict[str, dict] = {}
+        for router in as_candidate.routers:
+            if router.machine_name not in as_candidate.routers_needing_client:
+                continue
+            border_name = router.machine_name
+            picked_nets = {}
+            for v in (4, 6):
+                addr_len = 32 if v == 4 else 128
+                # Solo reti annunciate da questo router specifico verso provider
+                router_nets = set()
+                for ni in as_candidate.neighbors.values():
+                    if ni.neighbor_type != 1:
+                        continue
+                    if border_name in ni.announced_networks:
+                        router_nets.update(ni.announced_networks[border_name][v])
+                router_nets = utils.aggregate_networks(router_nets)
+                nets_list = list(router_nets)
+                if not nets_list:
+                    continue
+                random.shuffle(nets_list)
+                for net in nets_list:
+                    if (2 ** (addr_len - net.prefixlen)) - 2 > 2:
+                        picked_nets[v] = net
+                        break
+            if not picked_nets:
+                logging.warning(f"No viable networks for dynamic client on {border_name}, skipping.")
+                continue
+            logging.info(f"Selected networks {picked_nets} for dynamic client on {border_name}.")
+            dc = self._setup_dynamic_client(
+                router, net_scenario, picked_nets, as_candidate.assigned_ips
+            )
+            dynamic_clients[border_name] = dc
+
         for v, networks in all_announced_networks.items():
             logging.info(f"Performing check on IPv{v}...")
             addr_len = 32 if v == 4 else 128
@@ -127,101 +171,93 @@ class AntiSpoofingAction(Action):
 
                 for router in as_candidate.routers:
                     border_router_machine_name = router.machine_name
-
-                    # Recupera il client e il suo iface_idx
                     candidate_topo_node = topology.get(border_router_machine_name)
-                    candidate_client_name = f"{border_router_machine_name}_client"
-                    _, candidate_client_iface_idx = candidate_topo_node.get_node_by_name(candidate_client_name)
-
-                    if candidate_client_iface_idx == -1:
-                        logging.warning(f"No client interface available for {border_router_machine_name}, skipping...")
-                        action_result.add_result(
-                            WARNING,
-                            f"No client available for {border_router_machine_name}, cannot perform anti-spoofing check."
-                        )
-                        continue
-
-                    candidate_client = net_scenario.get_machine(candidate_client_name)
-
-                    # Restringe candidate_nets alle reti sull'interfaccia del client
-                    client_iface_nets = set()
-                    if router.vendor_config:
-                        for iface_name, iface in router.vendor_config.interfaces.items():
-                            iface_real_name = iface.phy.name if hasattr(iface, 'phy') else iface.name
-                            if router.vendor_config.iface_to_iface_idx.get(iface_real_name) == candidate_client_iface_idx:
-                                for addr in iface.addresses:
-                                    if addr.version == v:
-                                        client_iface_nets.add(addr.network)
-                    logging.info(f"Client interface {candidate_client_iface_idx} on {border_router_machine_name} has networks: {client_iface_nets}")
-
-                    # Tutte le reti annunciate dall'AS verso provider (da qualsiasi border router)
-                    all_candidate_nets_to_providers = set()
-                    for ni in as_candidate.neighbors.values():
-                        if ni.neighbor_type != 1:
-                            continue
-                        for br_nets in ni.announced_networks.values():
-                            all_candidate_nets_to_providers.update(br_nets[v])
-                    all_candidate_nets_to_providers = utils.aggregate_networks(all_candidate_nets_to_providers)
-                    logging.info(f"Announced networks for {as_candidate.local_as}: {all_candidate_nets_to_providers}")
-
-                    # Filtra alle reti presenti sull'interfaccia del client di questo router
-                    candidate_nets = {
-                        net for net in all_candidate_nets_to_providers
-                        if any(net.overlaps(n) for n in client_iface_nets)
-                    }
-
-                    if not candidate_nets:
-                        logging.warning(
-                            f"No viable networks on client interface for {border_router_machine_name}, skipping..."
-                        )
-                        action_result.add_result(
-                            WARNING, f"No viable networks for {border_router_machine_name} on IPv{v}."
-                        )
-                        continue
-
-                    candidate_net = None
-                    candidate_local_nets = list(candidate_nets)
-                    while len(candidate_local_nets) > 0:
-                        rand_idx = random.randint(0, len(candidate_local_nets) - 1)
-                        candidate_net_rand = candidate_local_nets.pop(rand_idx)
-                        # Trova la rete effettiva sull'interfaccia
-                        iface_net = next(
-                            (n for n in client_iface_nets if candidate_net_rand.overlaps(n)),
-                            None
-                        )
-                        if iface_net is None:
-                            continue
-                        if (2 ** (addr_len - iface_net.prefixlen)) - 2 > 2:
-                            candidate_net = candidate_net_rand
-                            break
-                        else:
-                            logging.warning(f"Interface network {iface_net} for {candidate_net_rand} has less than 3 IP addresses.")
-
-                    if candidate_net is None:
-                        logging.warning(f"No viable IPv{v} networks on {border_router_machine_name}, skipping...")
-                        action_result.add_result(WARNING, f"No viable IPv{v} networks on {border_router_machine_name}.")
-                        continue
-
-                    logging.info(f"Selected network {candidate_net} on {border_router_machine_name}.")
-
                     candidate_device = net_scenario.get_machine(border_router_machine_name)
+
+                    dc = dynamic_clients.get(border_router_machine_name)
+                    if dc is not None and f'client_ip_v{v}' in dc:
+                        candidate_client = dc['client_device']
+                        candidate_client_name = dc['client_name']
+                        candidate_client_iface_idx = dc['router_iface_idx']
+                        candidate_client_ip = dc[f'client_ip_v{v}']
+                        candidate_ip = dc[f'router_ip_v{v}']
+                    else:
+                        candidate_client_name = f"{border_router_machine_name}_client"
+                        _, candidate_client_iface_idx = candidate_topo_node.get_node_by_name(candidate_client_name)
+
+                        if candidate_client_iface_idx == -1:
+                            logging.warning(f"No client interface available for {border_router_machine_name}, skipping...")
+                            action_result.add_result(
+                                WARNING,
+                                f"No client available for {border_router_machine_name}, cannot perform anti-spoofing check."
+                            )
+                            continue
+
+                        candidate_client = net_scenario.get_machine(candidate_client_name)
+
+                        client_iface_nets = set()
+                        if router.vendor_config:
+                            for iface_name, iface in router.vendor_config.interfaces.items():
+                                iface_real_name = iface.phy.name if hasattr(iface, 'phy') else iface.name
+                                if router.vendor_config.iface_to_iface_idx.get(iface_real_name) == candidate_client_iface_idx:
+                                    for addr in iface.addresses:
+                                        if addr.version == v:
+                                            client_iface_nets.add(addr.network)
+                        logging.info(f"Client interface {candidate_client_iface_idx} on {border_router_machine_name} has networks: {client_iface_nets}")
+
+                        candidate_nets = {
+                            net for net in all_candidate_nets_to_providers[v]
+                            if any(net.overlaps(n) for n in client_iface_nets)
+                        }
+
+                        if not candidate_nets:
+                            logging.warning(
+                                f"No viable networks on client interface for {border_router_machine_name}, skipping..."
+                            )
+                            action_result.add_result(
+                                WARNING, f"No viable networks for {border_router_machine_name} on IPv{v}."
+                            )
+                            continue
+
+                        candidate_net = None
+                        candidate_local_nets = list(candidate_nets)
+                        while len(candidate_local_nets) > 0:
+                            rand_idx = random.randint(0, len(candidate_local_nets) - 1)
+                            candidate_net_rand = candidate_local_nets.pop(rand_idx)
+                            iface_net = next(
+                                (n for n in client_iface_nets if candidate_net_rand.overlaps(n)),
+                                None
+                            )
+                            if iface_net is None:
+                                continue
+                            if (2 ** (addr_len - iface_net.prefixlen)) - 2 > 2:
+                                candidate_net = candidate_net_rand
+                                break
+                            else:
+                                logging.warning(f"Interface network {iface_net} for {candidate_net_rand} has less than 3 IP addresses.")
+
+                        if candidate_net is None:
+                            logging.warning(f"No viable IPv{v} networks on {border_router_machine_name}, skipping...")
+                            action_result.add_result(WARNING, f"No viable IPv{v} networks on {border_router_machine_name}.")
+                            continue
+
+                        logging.info(f"Selected network {candidate_net} on {border_router_machine_name}.")
+
+                        iface_net = next(n for n in client_iface_nets if candidate_net.overlaps(n))
+                        candidate_client_ip = self._get_non_overlapping_address(iface_net, as_candidate.assigned_ips)
+                        candidate_ip = self._get_non_overlapping_address(
+                            iface_net, as_candidate.assigned_ips.union({candidate_client_ip})
+                        )
+
+                        self._ip_addr_add(candidate_client, 0, candidate_client_ip)
+                        self._ip_route_add(candidate_client, default_net, candidate_ip.ip, 0)
+                        self._vendor_ip_add(candidate_device, router.vendor_config, candidate_client_iface_idx, candidate_ip)
 
                     logging.info(f"Copying spoofing check script into candidate client `{candidate_client_name}`...")
                     with open(os.path.join(RESOURCES_FOLDER, "host_spoof_check.py"), "rb") as py_script:
                         content = BytesIO(py_script.read())
                     Kathara.get_instance().update_lab_from_api(net_scenario)
                     Kathara.get_instance().copy_files(candidate_client, {'/host_spoof_check.py': content})
-
-                    # Usa la rete effettivamente presente sull'interfaccia, non quella annunciata
-                    iface_net = next(n for n in client_iface_nets if candidate_net.overlaps(n))
-                    candidate_client_ip = self._get_non_overlapping_address(iface_net, as_candidate.assigned_ips)
-                    candidate_ip = self._get_non_overlapping_address(
-                        iface_net, as_candidate.assigned_ips.union({candidate_client_ip})
-                    )
-
-                    self._ip_addr_add(candidate_client, 0, candidate_client_ip)
-                    self._ip_route_add(candidate_client, default_net, candidate_ip.ip, 0)
-                    self._vendor_ip_add(candidate_device, router.vendor_config, candidate_client_iface_idx, candidate_ip)
 
                     logging.info(f"Copying sniffer script into client `{internet_router_client_name}`...")
                     with open(os.path.join(RESOURCES_FOLDER, "host_sniffer.py"), "rb") as py_script:
@@ -251,9 +287,14 @@ class AntiSpoofingAction(Action):
                                 f"SrcIP={candidate_client_ip.ip} -> DstIP={provider_client_addr}.")
                     action_result.add_result(SUCCESS if (spoof_passed and sniff_passed) else ERROR, msg)
 
-                    self._vendor_ip_del(candidate_device, router.vendor_config, candidate_client_iface_idx, candidate_ip)
-                    self._ip_addr_del(candidate_client, 0, candidate_client_ip)
-                    self._ip_route_del(candidate_client, default_net, candidate_ip.ip, 0)
+                    if dc is not None:
+                        self._ip_addr_del(candidate_client, 0, candidate_client_ip)
+                        self._ip_route_del(candidate_client, default_net, candidate_ip.ip, 0)
+                        self._ip_addr_del(candidate_device, candidate_client_iface_idx, candidate_ip)
+                    else:
+                        self._vendor_ip_del(candidate_device, router.vendor_config, candidate_client_iface_idx, candidate_ip)
+                        self._ip_addr_del(candidate_client, 0, candidate_client_ip)
+                        self._ip_route_del(candidate_client, default_net, candidate_ip.ip, 0)
 
                 self._cleanup_provider_ips(
                     provider_device, provider_client_iface_idx, provider_ip,
@@ -263,6 +304,9 @@ class AntiSpoofingAction(Action):
             self._ip_addr_del(internet_router_device, internet_router_client_iface_idx, internet_router_ip)
             self._ip_addr_del(internet_router_client, 0, internet_router_client_ip)
             self._ip_route_del(internet_router_client, default_net, internet_router_ip.ip, 0)
+
+        for border_name, dc in dynamic_clients.items():
+            self._cleanup_dynamic_client(dc, net_scenario)
 
         return action_result
 
@@ -396,6 +440,125 @@ class AntiSpoofingAction(Action):
         except StopIteration:
             pass
 
+    def _setup_dynamic_client(self, router, net_scenario: Lab,
+                               picked_nets: dict[int, ipaddress.IPv4Network | ipaddress.IPv6Network],
+                               assigned_ips: set) -> dict:
+        border_name = router.machine_name
+        client_name = f"{border_name}_dynamic_client"
+        cd_name = f"{border_name}_dynamic_cd"
+
+        logging.info(f"Creating dynamic client `{client_name}` for router `{border_name}` on CD `{cd_name}`...")
+
+        cd_link = net_scenario.get_or_new_link(cd_name)
+
+        if not net_scenario.has_machine(client_name):
+            client_device = net_scenario.new_machine(client_name)
+            client_device.add_meta('image', 'kathara/base')
+            client_device.add_meta('ipv6', True)
+        else:
+            client_device = net_scenario.get_machine(client_name)
+
+        if client_name not in cd_link.machines:
+            net_scenario.connect_machine_to_link(client_name, cd_name)
+            Kathara.get_instance().deploy_machine(client_device)
+        else:
+            Kathara.get_instance().deploy_machine(client_device)
+
+        router_device = net_scenario.get_machine(border_name)
+        if border_name not in cd_link.machines:
+            logging.info(f"Connecting router `{border_name}` to CD `{cd_name}`...")
+            n_ifaces_before = len(router_device.interfaces)
+            Kathara.get_instance().connect_machine_to_link(router_device, cd_link)
+            Kathara.get_instance().update_lab_from_api(net_scenario)
+            n_ifaces_after = len(router_device.interfaces)
+            logging.info(f"Router `{border_name}` interfaces before={n_ifaces_before} after={n_ifaces_after}, "
+                         f"keys={sorted(router_device.interfaces.keys())}")
+            if n_ifaces_after <= n_ifaces_before:
+                logging.warning(f"Router `{border_name}` was NOT connected to CD `{cd_name}`!")
+        else:
+            logging.info(f"Router `{border_name}` already connected to CD `{cd_name}`.")
+
+        router_iface_idx = max(router_device.interfaces.keys())
+        logging.info(f"Using interface eth{router_iface_idx} for router `{border_name}`.")
+
+        time.sleep(2)
+
+        for cmd in [
+            "sysctl -w net.ipv4.conf.all.rp_filter=0",
+            "sysctl -w net.ipv4.conf.default.rp_filter=0",
+            "sysctl -w net.ipv4.conf.eth0.rp_filter=0"
+        ]:
+            exec_out = Kathara.get_instance().exec(
+                machine_name=client_name, command=shlex.split(cmd), lab_name=net_scenario.name
+            )
+            try:
+                next(exec_out)
+            except StopIteration:
+                pass
+
+        result = {
+            'client_device': client_device,
+            'client_name': client_name,
+            'router_iface_idx': router_iface_idx,
+        }
+
+        for v, candidate_net in picked_nets.items():
+            hosts = list(candidate_net.hosts())
+            client_ip_iface = None
+            router_ip_iface = None
+            for h in hosts:
+                iface = ipaddress.ip_interface(f"{h}/{candidate_net.prefixlen}")
+                if iface not in assigned_ips:
+                    if client_ip_iface is None:
+                        client_ip_iface = iface
+                        assigned_ips.add(iface)
+                    elif router_ip_iface is None:
+                        router_ip_iface = iface
+                        assigned_ips.add(iface)
+                    else:
+                        break
+
+            if client_ip_iface is None or router_ip_iface is None:
+                raise RuntimeError(f"Not enough free IPs in {candidate_net}")
+
+            default_net = ipaddress.IPv4Network("0.0.0.0/0") if v == 4 else ipaddress.IPv6Network("::/0")
+            self._ip_addr_add(client_device, 0, client_ip_iface)
+            self._ip_route_add(client_device, default_net, router_ip_iface.ip, 0)
+            self._ip_addr_add(router_device, router_iface_idx, router_ip_iface)
+
+            # Aggiungi route host verso il client per evitare ambiguità di routing
+            exec_output = Kathara.get_instance().exec(
+                machine_name=router_device.name,
+                command=shlex.split(f"ip route add {client_ip_iface.ip}/32 dev eth{router_iface_idx}"),
+                lab_name=net_scenario.name
+            )
+            try:
+                next(exec_output)
+            except StopIteration:
+                pass
+
+            result[f'client_ip_v{v}'] = client_ip_iface
+            result[f'router_ip_v{v}'] = router_ip_iface
+
+        return result
+
+    @staticmethod
+    def _cleanup_dynamic_client(dc: dict, net_scenario: Lab) -> None:
+        client_name = dc['client_name']
+        border_name = client_name.replace('_dynamic_client', '')
+        cd_name = f"{border_name}_dynamic_cd"
+
+        try:
+            client_device = dc['client_device']
+            cd_link = net_scenario.get_link(cd_name)
+
+            if cd_link:
+                Kathara.get_instance().undeploy_link(cd_link)
+
+            Kathara.get_instance().undeploy_machine(client_device)
+        except Exception as e:
+            logging.warning(f"Error during dynamic client cleanup for {client_name}: {e}")
+
     @staticmethod
     def _perform_spoofing_check(send_device: Machine, rcv_device: Machine,
                                 candidate_ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
@@ -428,7 +591,7 @@ class AntiSpoofingAction(Action):
 
         spoof_passed = result_spoof.decode('utf-8').strip() == "1"
         logging.info(f"spoof test on candidate client passed={spoof_passed}")
-        Kathara.get_instance().connect_tty(machine_name=send_device.name, lab_name=send_device.lab.name)
+        # Kathara.get_instance().connect_tty(machine_name=send_device.name, lab_name=send_device.lab.name)
         # Once exited, check what we captured on the sniffer
         result_sniff = None
         while result_sniff is None:
