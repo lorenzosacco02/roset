@@ -43,6 +43,16 @@ class NetworkScenarioManager:
 
                                 startup.write(f"ip addr add {ip} dev {iface_name}\n")
 
+        # Write static routes for candidate routers
+        for as_num, node in topology.all():
+            if isinstance(node, BgpRouter) and node.candidate and node.static_routes:
+                device = net_scenario.get_machine(node.machine_name)
+                if device:
+                    with device.lab.fs.open(f"{device.name}.startup", 'a+') as startup:
+                        for route in node.static_routes:
+                            startup.write(f"{route}\n")
+                            logging.info(f"Added route to {device.name}: {route}")
+
         return net_scenario
 
     def _build_device(self, net_scenario: Lab, node: Node) -> Machine:

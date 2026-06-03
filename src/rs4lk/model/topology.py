@@ -24,12 +24,13 @@ INTERNET_AS_NUM = 1111
 
 
 class Node:
-    __slots__ = ['identifier', 'neighbours', '_iface_idx_to_cd']
+    __slots__ = ['identifier', 'neighbours', '_iface_idx_to_cd', 'static_routes']
 
     def __init__(self, identifier: Any) -> None:
         self.identifier: Any = identifier
         self.neighbours: SortedDict[int, dict[str, 'Neighbour']] = SortedDict()
         self._iface_idx_to_cd: SortedDict[int, str] = SortedDict()
+        self.static_routes: list[str] = []
 
     @property
     def name(self) -> str:
@@ -687,6 +688,122 @@ class Topology:
                         )
 
                         logging.info(f"  Connected {router_name} (iface {peering.iface_idx}) <-> {other_name} (iface {other_peering_match.iface_idx}) via {cd} (iBGP)")
+
+        # Handle non-directly-connected iBGP sessions (multihop iBGP)
+        # These occur when iBGP peers are not on the same subnet and
+        # LPM in _infer_bgp_dc_sessions couldn't find a matching interface.
+        # We create a direct L2 link between the two routers.
+        self._connect_non_dc_ibgp(candidate_routers, connected_pairs)
+
+    def _connect_non_dc_ibgp(self, candidate_routers: dict,
+                               connected_pairs: set[tuple[str, str]]) -> None:
+        logging.info("Connecting non-directly-connected iBGP sessions...")
+
+        # Build a map: router_name -> {ip_str: iface_idx} for all candidate routers
+        router_iface_ips: dict[str, dict[str, int]] = {}
+        for router_name, router in candidate_routers.items():
+            ips: dict[str, int] = {}
+            for rc in self._as_candidate.routers:
+                if rc.router_name == router_name and rc.vendor_config:
+                    for iface_name, iface in rc.vendor_config.interfaces.items():
+                        iface_real = iface.phy.name if hasattr(iface, 'phy') else iface.name
+                        if iface_real not in rc.vendor_config.iface_to_iface_idx:
+                            continue
+                        iface_idx = rc.vendor_config.iface_to_iface_idx[iface_real]
+                        for addr in iface.addresses:
+                            ips[str(addr.ip)] = iface_idx
+                    break
+            router_iface_ips[router_name] = ips
+
+        for router_name, router in candidate_routers.items():
+            vendor_config = None
+            for rc in self._as_candidate.routers:
+                if rc.router_name == router_name:
+                    vendor_config = rc.vendor_config
+                    break
+            if not vendor_config:
+                continue
+
+            for remote_as, session in vendor_config.sessions.items():
+                if remote_as != self._as_candidate.local_as:
+                    continue
+
+                for peering in session.peerings:
+                    if peering.local_ip is not None:
+                        continue
+                    if peering.remote_ip is None:
+                        continue
+
+                    remote_ip_str = str(peering.remote_ip)
+
+                    other_name = None
+                    other_iface_idx = None
+                    for cand_name, cand_ips in router_iface_ips.items():
+                        if cand_name == router_name:
+                            continue
+                        if remote_ip_str in cand_ips:
+                            other_name = cand_name
+                            other_iface_idx = cand_ips[remote_ip_str]
+                            break
+
+                    if other_name is None:
+                        continue
+
+                    pair_key = tuple(sorted([router_name, other_name]))
+                    if pair_key in connected_pairs:
+                        continue
+
+                    router_iface_idx = None
+                    local_ip_str = None
+                    other_vc = None
+                    for rc in self._as_candidate.routers:
+                        if rc.router_name == other_name:
+                            other_vc = rc.vendor_config
+                            break
+
+                    if other_vc:
+                        for other_ras, other_sess in other_vc.sessions.items():
+                            if other_ras != self._as_candidate.local_as:
+                                continue
+                            for other_peer in other_sess.peerings:
+                                if other_peer.remote_ip is None:
+                                    continue
+                                o_remote = str(other_peer.remote_ip)
+                                if o_remote in router_iface_ips.get(router_name, {}):
+                                    router_iface_idx = router_iface_ips[router_name][o_remote]
+                                    local_ip_str = o_remote
+                                    break
+                            if router_iface_idx is not None:
+                                break
+
+                    if router_iface_idx is None or local_ip_str is None:
+                        logging.warning(
+                            f"Cannot find interface on {router_name} for "
+                            f"non-DC iBGP to {other_name}"
+                        )
+                        continue
+
+                    other_router = candidate_routers[other_name]
+
+                    cd = router.get_cd_by_iface_idx(router_iface_idx)
+
+                    other_router._iface_idx_to_cd[other_iface_idx] = cd
+                    router.connect_to_neighbour(other_router, router_iface_idx, cd)
+                    other_router.connect_to_neighbour(router, other_iface_idx, cd)
+
+                    router.static_routes.append(
+                        f"ip route add {remote_ip_str}/32 dev eth{router_iface_idx}"
+                    )
+                    other_router.static_routes.append(
+                        f"ip route add {local_ip_str}/32 dev eth{other_iface_idx}"
+                    )
+
+                    connected_pairs.add(pair_key)
+                    logging.info(
+                        f"Connected non-DC iBGP: {router_name} (eth{router_iface_idx}, "
+                        f"{local_ip_str}) <-> {other_name} (eth{other_iface_idx}, "
+                        f"{remote_ip_str}) via {cd}"
+                    )
 
     def _add_dummy_interfaces_candidate_routers(self, candidate_routers: dict) -> None:
         for router in candidate_routers.values():
