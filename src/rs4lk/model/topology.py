@@ -699,7 +699,6 @@ class Topology:
                                connected_pairs: set[tuple[str, str]]) -> None:
         logging.info("Connecting non-directly-connected iBGP sessions...")
 
-        # Build a map: router_name -> {ip_str: iface_idx} for all candidate routers
         router_iface_ips: dict[str, dict[str, int]] = {}
         for router_name, router in candidate_routers.items():
             ips: dict[str, int] = {}
@@ -714,6 +713,9 @@ class Topology:
                             ips[str(addr.ip)] = iface_idx
                     break
             router_iface_ips[router_name] = ips
+
+        # First pass: collect all non-DC iBGP pairs with their interface info
+        pairs: list[tuple[str, int, str, int, str, str]] = []
 
         for router_name, router in candidate_routers.items():
             vendor_config = None
@@ -783,26 +785,53 @@ class Topology:
                         )
                         continue
 
-                    other_router = candidate_routers[other_name]
-
-                    cd = router.get_cd_by_iface_idx(router_iface_idx)
-
-                    other_router._iface_idx_to_cd[other_iface_idx] = cd
-                    router.connect_to_neighbour(other_router, router_iface_idx, cd)
-                    other_router.connect_to_neighbour(router, other_iface_idx, cd)
-
-                    router.static_routes.append(
-                        f"ip route add {remote_ip_str}/32 dev eth{router_iface_idx}"
-                    )
-                    other_router.static_routes.append(
-                        f"ip route add {local_ip_str}/32 dev eth{other_iface_idx}"
-                    )
-
+                    pairs.append((router_name, router_iface_idx, other_name,
+                                  other_iface_idx, remote_ip_str, local_ip_str))
                     connected_pairs.add(pair_key)
+
+        if not pairs:
+            return
+
+        # Create a single shared collision domain (switch) for all non-DC iBGP
+        ibgp_switch_cd = CollisionDomain.get_instance().get(
+            f"as{self._as_candidate.local_as}", "ibgp_switch"
+        )
+
+        # Connect all pairs through the shared switch CD
+        for a_name, a_idx, b_name, b_idx, a_remote, a_local in pairs:
+            a_router = candidate_routers[a_name]
+            b_router = candidate_routers[b_name]
+
+            a_router._iface_idx_to_cd[a_idx] = ibgp_switch_cd
+            b_router._iface_idx_to_cd[b_idx] = ibgp_switch_cd
+
+            a_router.connect_to_neighbour(b_router, a_idx, ibgp_switch_cd)
+            b_router.connect_to_neighbour(a_router, b_idx, ibgp_switch_cd)
+
+            logging.info(
+                f"Connected {a_name} (eth{a_idx}) <-> {b_name} (eth{b_idx}) "
+                f"via iBGP switch CD {ibgp_switch_cd}"
+            )
+
+        # Add static routes: each router needs a route for every peer IP
+        router_routes: dict[str, list[tuple[str, int]]] = {}
+        for a_name, a_idx, b_name, b_idx, a_remote, a_local in pairs:
+            if a_name not in router_routes:
+                router_routes[a_name] = []
+            if b_name not in router_routes:
+                router_routes[b_name] = []
+            router_routes[a_name].append((a_remote, a_idx))
+            router_routes[b_name].append((a_local, b_idx))
+
+        for router_name, routes in router_routes.items():
+            router = candidate_routers[router_name]
+            for remote_ip, iface_idx in routes:
+                route = f"ip route add {remote_ip}/32 dev eth{iface_idx}"
+                if route not in router.static_routes:
+                    router.static_routes.append(route)
                     logging.info(
-                        f"Connected non-DC iBGP: {router_name} (eth{router_iface_idx}, "
-                        f"{local_ip_str}) <-> {other_name} (eth{other_iface_idx}, "
-                        f"{remote_ip_str}) via {cd}"
+                        f"  Route on {router_name} (eth{iface_idx}): "
+                        f"ip route add {remote_ip}/32"
                     )
 
     def _add_dummy_interfaces_candidate_routers(self, candidate_routers: dict) -> None:
