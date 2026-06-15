@@ -143,9 +143,9 @@ resources/*.rsc
 resources/*.txt
 vrnetlab/*
 *.mrt
-src/test_*
 docs/*
-test_as_candidate
+test_as
 more_routers
 single_router
 debug_topology.py
+test_parser.py
