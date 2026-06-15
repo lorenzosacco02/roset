@@ -40,8 +40,12 @@ class Timer:
 
     @classmethod
     def print_summary(cls) -> None:
+        sys.stdout.write(cls.format_summary())
+
+    @classmethod
+    def format_summary(cls) -> str:
         if not cls._marks:
-            return
+            return ""
 
         start = cls._marks[0][1]
         total = cls._marks[-1][1] - start
@@ -58,7 +62,7 @@ class Timer:
 
         out.append(sep)
         out.append(f"  {'TOTAL':<{name_w}}  {total:>7.2f}s\n")
-        sys.stdout.write("\n".join(out) + "\n")
+        return "\n".join(out) + "\n"
 
     @classmethod
     def reset(cls) -> None:

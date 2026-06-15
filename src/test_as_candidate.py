@@ -35,6 +35,9 @@ def parse_args():
     parser.add_argument('--debug', action='store_true', 
                         help='Abilita i messaggi di debug'
     )
+    parser.add_argument('--file', type=str, required=False, default=None,
+                        help='Salva i risultati finali nel file specificato'
+    )
     return parser.parse_args()
 
 
@@ -141,8 +144,10 @@ def main(args):
 
         all_passed = all([x.passed() for x in results])
 
+        result_lines = []
         for result in results:
             result.print(level=args.result_level)
+            result_lines.extend(result.format_lines(level=args.result_level))
 
     except (BgpRuntimeError, ConfigValidationError) as e:
         logging.error(f"Error during validation: {e}")
@@ -154,7 +159,15 @@ def main(args):
 
     net_scenario_manager.undeploy(net_scenario)
 
+    summary = Timer.format_summary()
     Timer.print_summary()
+
+    if args.file:
+        d = os.path.dirname(args.file)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with open(args.file, 'w') as f:
+            f.write("\n".join(result_lines) + "\n" + summary)
     
     return 0 if all_passed else 1
 
