@@ -74,7 +74,7 @@ class AntiSpoofingAction(Action):
             picked_nets = {}
             for v in (4, 6):
                 addr_len = 32 if v == 4 else 128
-                # Solo reti annunciate da questo router specifico verso provider
+                # Only networks announced by this specific router towards the provider.
                 router_nets = set()
                 for ni in as_candidate.neighbors.values():
                     if ni.neighbor_type != 1:
@@ -526,7 +526,7 @@ class AntiSpoofingAction(Action):
             self._ip_route_add(client_device, default_net, router_ip_iface.ip, 0)
             self._ip_addr_add(router_device, router_iface_idx, router_ip_iface)
 
-            # Aggiungi route host verso il client per evitare ambiguità di routing
+            # Add host routes towards the client to avoid routing ambiguities.
             exec_output = Kathara.get_instance().exec(
                 machine_name=router_device.name,
                 command=shlex.split(f"ip route add {client_ip_iface.ip}/32 dev eth{router_iface_idx}"),
@@ -591,7 +591,6 @@ class AntiSpoofingAction(Action):
 
         spoof_passed = result_spoof.decode('utf-8').strip() == "1"
         logging.info(f"spoof test on candidate client passed={spoof_passed}")
-        # Kathara.get_instance().connect_tty(machine_name=send_device.name, lab_name=send_device.lab.name)
         # Once exited, check what we captured on the sniffer
         result_sniff = None
         while result_sniff is None:
@@ -602,6 +601,10 @@ class AntiSpoofingAction(Action):
                 pass
         sniff_passed = result_sniff.decode('utf-8').strip() == "1"
         logging.info(f"sniff test on provider client passed={sniff_passed}")
+        
+        # For Debugging uncomment this 
+        # if sniff_passed == False or spoof_passed == False:
+            # Kathara.get_instance().connect_tty(machine_name=send_device.name, lab_name=send_device.lab.name)
 
         return (spoof_passed, sniff_passed)
 

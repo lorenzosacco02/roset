@@ -35,7 +35,7 @@ class AsCandidate:
     def build_neighbor_map(self, topology: Topology, net_scenario: Lab) -> None:
         logging.info(f"Building neighbor map for AS{self.local_as}...")
 
-        # Aggrega tutti gli IP assegnati su tutti i router di bordo
+        # Collect all assigned IP addresses from all border routers.
         self.assigned_ips = set()
         for router in self.routers:
             if not router.vendor_config:
@@ -51,7 +51,7 @@ class AsCandidate:
             router_device = net_scenario.get_machine(router.machine_name)
 
             for remote_as, session in router.vendor_config.sessions.items():
-                # Salta sessioni iBGP
+                # Skip iBGP sessions.
                 if remote_as == self.local_as:
                     continue
 
@@ -59,7 +59,7 @@ class AsCandidate:
                     logging.warning(f"Session with AS{remote_as} on {router.machine_name} has no interface, skipping...")
                     continue
 
-                # Recupera il nodo nella topologia
+                # Retrieve the node from the topology.
                 try:
                     neighbor_node = topology.get(remote_as)
                 except Exception:
@@ -68,7 +68,7 @@ class AsCandidate:
 
                 neighbor_device = net_scenario.get_machine(neighbor_node.machine_name)
 
-                # Crea o recupera il NeighborInfo per questo AS
+                # Create or retrieve the NeighborInfo for this AS.
                 if remote_as not in self.neighbors:
                     self.neighbors[remote_as] = NeighborInfo(
                         neighbor_as=remote_as,
@@ -78,7 +78,7 @@ class AsCandidate:
                 neighbor_info = self.neighbors[remote_as]
                 neighbor_info.add_peering(router.machine_name)
 
-                # Itera su ogni peering della sessione
+                # Iterate over every peering in the session.
                 for peering in session.peerings:
                     if peering.local_ip is None:
                         continue

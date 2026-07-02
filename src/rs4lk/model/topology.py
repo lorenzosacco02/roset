@@ -440,7 +440,7 @@ class Topology:
     def _build_multi_router_topology(self) -> None:
         candidate_routers = {}
         for rc in self._as_candidate.routers:
-            rc.candidate = True  # rc è già un RouterCandidate con name = machine_name
+            rc.candidate = True  # rc is already a RouterCandidate with name = machine_name.
             
             vendor_config = rc.vendor_config
             if vendor_config and vendor_config.interfaces:
@@ -564,10 +564,10 @@ class Topology:
 
                 cd = router.get_cd_by_iface_idx(peering.iface_idx)
                 router.connect_to_neighbour(neighbour_router, peering.iface_idx)
-                # Crea sempre una nuova interfaccia su AS20 per questo CD
+                # Always create a new interface on the remote AS for this collision domain.
                 neighbour_iface_idx = neighbour_router.connect_interface_to_cd(cd)
                 if neighbour_iface_idx is None:
-                    # CD già presente, trova l'iface_idx esistente
+                    # The collision domain already exists; find the existing iface_idx.
                     for iface_idx, iface_cd in neighbour_router._iface_idx_to_cd.items():
                         if iface_cd == cd:
                             neighbour_iface_idx = iface_idx
@@ -911,14 +911,14 @@ class Topology:
             router = candidate_routers[rc.router_name]
             candidate_router_client = Client(self._as_candidate.local_as, router.machine_name)
 
-            # Interfacce già usate per peering eBGP
+            # Interfaces already used for eBGP peering.
             used_iface_idxs = set()
             if rc.vendor_config:
                 for remote_as, session in rc.vendor_config.sessions.items():
                     if remote_as != self._as_candidate.local_as and session.iface_idx is not None:
                         used_iface_idxs.add(session.iface_idx)
 
-            # Cerca interfaccia con rete pubblica e non usata per peering eBGP
+            # Find a public-network interface that is not already used for eBGP peering.
             public_iface_candidates = []
             if rc.vendor_config:
                 for iface_name, iface in rc.vendor_config.interfaces.items():
@@ -936,7 +936,7 @@ class Topology:
 
             logging.info(f"Router {router.machine_name} - public_iface_candidates: {public_iface_candidates}")
 
-            # Scelta random tra le interfacce pubbliche
+            # Randomly choose among the public interfaces.
             client_iface_idx = -1
             if public_iface_candidates:
                 client_iface_idx = random.choice(public_iface_candidates)

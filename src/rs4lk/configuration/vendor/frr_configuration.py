@@ -72,7 +72,7 @@ class FrrConfiguration(VendorConfiguration):
         
         return commands
 
-    # Inutilizzato, ma lasciato per coerenza con le altre configurazioni
+    # Unused, but kept for consistency with the other configurations.
     def get_lines(self) -> list[str]:
         cleaned = []
         skip_until_next_bang = False

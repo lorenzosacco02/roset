@@ -44,7 +44,7 @@ class RouteLeakAction(Action):
         utils.aggregate_v4_6_networks(all_announced_networks)
         logging.debug(f"Resulting networks are: {all_announced_networks}")
 
-        # Raccogli i customer dai NeighborInfo pre-calcolati
+        # Collect customers from NeighborInfo
         customers = {
             neighbor_as: neighbor_info
             for neighbor_as, neighbor_info in as_candidate.neighbors.items()
@@ -87,10 +87,10 @@ class RouteLeakAction(Action):
                     router = as_candidate.get_router_by_machine_name(border_router_machine_name)
                     candidate_device = net_scenario.get_machine(border_router_machine_name)
 
-                    # Annuncia la rete spoofed dal customer
+                    # Announce spoofed network from customer
                     self._vtysh_network(customer_device, neighbor_as, spoofing_net)
 
-                    # Trova il peering IP del customer verso il candidato (lato candidato)
+                    # Find the customer's peering IP towards the candidate (candidate side).
                     candidate_topo_node = topology.get(border_router_machine_name)
                     customer_neigh, _ = candidate_topo_node.get_neighbour_by_name(customer_node.name)
                     if not customer_neigh:
@@ -143,7 +143,7 @@ class RouteLeakAction(Action):
                         self._no_vtysh_network(customer_device, neighbor_as, spoofing_net)
                         continue
 
-                    # Controlla se il candidato propaga la rete verso i provider
+                    # Check whether the candidate propagates the network towards the providers.
                     for _, provider in providers_routers:
                         logging.info(f"Checking provider AS{provider.identifier} for border router {border_router_machine_name}")
                         logging.debug(f"provider_neighbor_info: {as_candidate.neighbors.get(provider.identifier)}")
@@ -155,7 +155,7 @@ class RouteLeakAction(Action):
                             logging.warning(f"AS{provider.identifier} not in neighbor map, skipping...")
                             continue
 
-                        # Cerca qualsiasi border router che peera con questo provider
+                        # Find any border router peering with this provider.
                         provider_peerings = {
                             br: ips for br, ips in provider_neighbor_info.peerings.items()
                             if v in ips
